@@ -852,6 +852,8 @@ GameObject:
   - component: {fileID: 1018629099910032019}
   - component: {fileID: 1575730857551015837}
   - component: {fileID: 4164454598493591286}
+  - component: {fileID: 4114906150482272762}
+  - component: {fileID: 488289044857563381}
   m_Layer: 0
   m_Name: Wolf
   m_TagString: Agent
@@ -899,6 +901,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 94b60d816a753fd42931f2e44866b471, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
+  networkShape: 050000002000000002000000
 --- !u!114 &1575730857551015837
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -933,19 +936,18 @@ MonoBehaviour:
   maxLoveLevel: 100
   loveIncreaseRate: 0.2
   loveThreshold: 75
-  agentPrefab: {fileID: 919132149155446097, guid: e129a86f8374a814caa79ce1693f0eb0, type: 3}
+  agentPrefab: {fileID: 5731998082977590932}
   isUser: 0
   size: 1
   viewDistance: 20
   viewAngle: 120
-  energy: 50
-  maxEnergy: 100
-  energyGained: 30
-  energyLossRate: 0.5
-  hungerThreshold: 40
-  reproductionEnergy: 0
-  reproductionEnergyThreshold: 60
-  reproductionEnergyGained: 5
+  hunger: 50
+  maxHunger: 100
+  hungerGained: 30
+  hungerDecreaseRate: 2
+  reproductionHunger: 0
+  reproductionHungerThreshold: 60
+  reproductionHungerGained: 5
   numberOfChildren: 1
   FB: 0.3
   LR: 0
@@ -958,6 +960,37 @@ MonoBehaviour:
   nn: {fileID: 1018629099910032019}
   lifeSpan: 0
   isDead: 0
+--- !u!114 &4114906150482272762
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5731998082977590932}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2e44255662963e847b1495da70546613, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  statsPanel: {fileID: 0}
+  stateText: {fileID: 0}
+  hungerBar: {fileID: 0}
+  hungerText: {fileID: 0}
+  loveBar: {fileID: 0}
+  loveText: {fileID: 0}
+--- !u!114 &488289044857563381
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5731998082977590932}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 0a45861aa320c614ba701102fa339a0b, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  hoverRadius: 1
 --- !u!1 &5913783319390166553
 GameObject:
   m_ObjectHideFlags: 0

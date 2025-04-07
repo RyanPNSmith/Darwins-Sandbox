@@ -19,10 +19,10 @@ public class Creature : MonoBehaviour
     private float stateTimer = 0f;
     
     // Mating properties
-    public float loveLevel = 0f;
+    public float loveLevel = 0f;         // Start at 0 love
     public float maxLoveLevel = 100f;
     public float loveIncreaseRate = 0.2f;
-    public float loveThreshold = 75f;
+    public float loveThreshold = 100f;   // Changed from 75f to 100f - require full love
     private bool isLookingForMate = false;
     private GameObject currentMate = null;
     private float matingDistance = 3f;
@@ -39,11 +39,10 @@ public class Creature : MonoBehaviour
     public float viewAngle = 120f;
     
     // Energy attributes
-    public float hunger = 50f; // Current hunger level (0 = starving, 100 = full)
-    public float maxHunger = 100f; // Maximum hunger level
-    public float hungerGained = 30f; // How much hunger is reduced when eating
-    public float hungerIncreaseRate = 0.5f; // How quickly hunger increases over time
-    public float hungerThreshold = 40f; // Below this hunger level, wolf prioritizes hunting
+    public float hunger = 100f;         // Start at 100 hunger (full)
+    public float maxHunger = 100f;
+    public float hungerGained = 25f;    // Amount hunger increases when eating
+    public float hungerDecreaseRate = 5f;    // Increased to 5f to make hunger decrease faster
     
     // Reproduction attributes
     public float reproductionHunger = 0;
@@ -80,7 +79,7 @@ public class Creature : MonoBehaviour
     private float preyMemoryDuration = 3f; // How long wolf remembers prey after losing sight
     private List<GameObject> detectedPreyList = new List<GameObject>();
     private List<GameObject> detectedMatesList = new List<GameObject>();
-    
+
     // Start is called before the first frame update
     void Awake()
     {
@@ -237,21 +236,21 @@ public class Creature : MonoBehaviour
         // Update state timer
         stateTimer += Time.deltaTime;
         
-        // Define fullness threshold - when wolf is considered "full"
-        float fullnessThreshold = maxHunger * 0.2f;  // 20% of max hunger (80% full)
+        // Define hunger threshold - when wolf is considered "hungry"
+        float hungerThreshold = maxHunger * 0.5f;  // 50% of max hunger
         
         // State transitions
         switch(currentState)
         {
             case WolfState.Wandering:
-                // If hungry and not full, switch to hunting (only if prey is detected)
-                if (hunger > hungerThreshold && hunger > fullnessThreshold && targetPrey != null)
+                // If hunger is below threshold, switch to hunting (only if prey is detected)
+                if (hunger < hungerThreshold && targetPrey != null)
                 {
                     currentState = WolfState.Hunting;
                     stateTimer = 0f;
                 }
-                // If ready to mate and a mate is found, switch to mating
-                else if (loveLevel > loveThreshold && currentMate != null)
+                // If ready to mate (FULL love) and a mate is found, switch to mating
+                else if (loveLevel >= maxLoveLevel && currentMate != null)
                 {
                     currentState = WolfState.Mating;
                     stateTimer = 0f;
@@ -260,14 +259,14 @@ public class Creature : MonoBehaviour
                 break;
                 
             case WolfState.Hunting:
-                // If full or no prey, go back to wandering
-                if (targetPrey == null || hunger <= fullnessThreshold)
+                // If not hungry or no prey, go back to wandering
+                if (targetPrey == null || hunger >= hungerThreshold)
                 {
                     currentState = WolfState.Wandering;
                     stateTimer = 0f;
                 }
-                // If love is very high, prioritize mating over eating (unless really hungry)
-                else if (loveLevel > loveThreshold * 1.2f && hunger < hungerThreshold * 1.3f && currentMate != null)
+                // If love is full, prioritize mating over eating (unless very hungry)
+                else if (loveLevel >= maxLoveLevel && hunger > hungerThreshold * 0.7f && currentMate != null)
                 {
                     currentState = WolfState.Mating;
                     stateTimer = 0f;
@@ -303,7 +302,7 @@ public class Creature : MonoBehaviour
         }
         
         // Emergency transition - if very hungry, always prioritize hunting over other states
-        if (hunger > hungerThreshold * 1.5f && targetPrey != null && currentState != WolfState.Hunting)
+        if (hunger < hungerThreshold * 0.5f && targetPrey != null && currentState != WolfState.Hunting)
         {
             currentState = WolfState.Hunting;
             stateTimer = 0f;
@@ -335,8 +334,8 @@ public class Creature : MonoBehaviour
             if (obj.CompareTag("Agent"))
             {
                 Creature otherCreature = obj.GetComponent<Creature>();
-                // Check if other creature is also looking for a mate
-                if (otherCreature != null && otherCreature.loveLevel > otherCreature.loveThreshold)
+                // Check if other creature has FULL love level (100)
+                if (otherCreature != null && otherCreature.loveLevel >= otherCreature.maxLoveLevel)
                 {
                     return true;
                 }
@@ -548,7 +547,7 @@ public class Creature : MonoBehaviour
         // Use 5 raycasts for environmental sensing
         int numRaycasts = 5;
         float angleBetweenRaycasts = 30;
-        
+
         for (int i = 0; i < numRaycasts; i++)
         {
             float angle = ((2 * i + 1 - numRaycasts) * angleBetweenRaycasts / 2);
@@ -591,7 +590,8 @@ public class Creature : MonoBehaviour
         }
         
         // Add normalized hunger level as the last input
-        sensorInputs[5] = hunger / maxHunger;
+        // Now lower hunger means higher need to find food (1.0 = empty/starving, 0.0 = full)
+        sensorInputs[5] = 1.0f - (hunger / maxHunger);
     }
 
     void ApplyHuntingBehavior()
@@ -698,9 +698,9 @@ public class Creature : MonoBehaviour
         // Use the helper method
         if (IsPrey(col.gameObject))
         {
-            // Eat the prey
-            hunger -= hungerGained;
-            hunger = Mathf.Max(hunger, 0f);
+            // Eat the prey - INCREASES hunger now
+            hunger += hungerGained;
+            hunger = Mathf.Min(hunger, maxHunger);
             
             // Gain reproduction hunger
             reproductionHunger -= reproductionHungerGained;
@@ -718,16 +718,22 @@ public class Creature : MonoBehaviour
 
     public void ManageEnergy()
     {
-        // Only manage energy if not dead
+        // Only manage hunger if not dead
         if (isDead) return;
 
-        // Decrease energy over time
-        hunger -= hungerIncreaseRate * Time.deltaTime;
+        // Decrease hunger over time - MUST use Time.deltaTime to be frame-rate independent
+        hunger -= hungerDecreaseRate * Time.deltaTime;
         
-        // Clamp energy between 0 and maxHunger
+        // Debug log to verify hunger is decreasing
+        if (hunger % 10 < 0.1f)  // Log approximately every 10 units
+        {
+            Debug.Log(gameObject.name + " - Hunger: " + hunger);
+        }
+        
+        // Clamp hunger between 0 and maxHunger
         hunger = Mathf.Clamp(hunger, 0f, maxHunger);
         
-        // Die if energy reaches zero
+        // Die if hunger reaches zero
         if (hunger <= 0f)
         {
             isDead = true;
@@ -742,6 +748,8 @@ public class Creature : MonoBehaviour
             {
                 GetComponent<Renderer>().material.color = Color.gray;
             }
+            
+            Debug.Log(gameObject.name + " has died from hunger!");
         }
         
         // Update reproduction hunger
@@ -824,5 +832,30 @@ public class Creature : MonoBehaviour
             hunger -= 10f;
             mateCreature.hunger -= 10f;
         }
+    }
+
+    void InitializeNeuralNetwork()
+    {
+        // Create neural network with 6 inputs (5 distance sensors + hunger level)
+        // and 2 outputs (forward/backward and left/right)
+        nn = new NN();
+        nn.networkShape = new int[] {6, 32, 2};  // 6 inputs instead of 5
+        nn.Awake();  // Initialize the network
+        
+        // Get the weights from the neural network
+        float[] weights = nn.weights;
+        
+        // Modify weights to bias towards hunting when hunger is high
+        // The hunger input is the last input (index 5)
+        // We'll make it strongly influence the forward/backward output (index 0)
+        // when hunger is high
+        
+        // Bias the forward/backward output to move forward when hungry
+        // This is done by making the weight from hunger to forward/backward positive
+        int hungerToForwardWeightIndex = 5 * 32; // 5 is hunger input index, 32 is number of neurons in first layer
+        weights[hungerToForwardWeightIndex] = 2.0f; // Strong positive weight
+        
+        // Set the modified weights back to the neural network
+        nn.weights = weights;
     }
 }

@@ -2,8 +2,61 @@
 
 public class NN : MonoBehaviour
 {
-    int [] networkShape = {5,32,2};
+    public int[] networkShape = {5,32,2};
     public Layer [] layers;
+
+    // Property to access and modify weights
+    public float[] weights
+    {
+        get
+        {
+            // Calculate total number of weights
+            int totalWeights = 0;
+            for (int i = 0; i < layers.Length; i++)
+            {
+                totalWeights += layers[i].weightsArray.GetLength(0) * layers[i].weightsArray.GetLength(1);
+            }
+
+            // Create array to store all weights
+            float[] allWeights = new float[totalWeights];
+            int currentIndex = 0;
+
+            // Copy weights from each layer
+            for (int i = 0; i < layers.Length; i++)
+            {
+                int rows = layers[i].weightsArray.GetLength(0);
+                int cols = layers[i].weightsArray.GetLength(1);
+                for (int row = 0; row < rows; row++)
+                {
+                    for (int col = 0; col < cols; col++)
+                    {
+                        allWeights[currentIndex++] = layers[i].weightsArray[row, col];
+                    }
+                }
+            }
+
+            return allWeights;
+        }
+        set
+        {
+            int currentIndex = 0;
+            for (int i = 0; i < layers.Length; i++)
+            {
+                int rows = layers[i].weightsArray.GetLength(0);
+                int cols = layers[i].weightsArray.GetLength(1);
+                for (int row = 0; row < rows; row++)
+                {
+                    for (int col = 0; col < cols; col++)
+                    {
+                        if (currentIndex < value.Length)
+                        {
+                            layers[i].weightsArray[row, col] = value[currentIndex++];
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // Awake is called when the script instance is being loaded.
     // Start is called before the first frame update.
