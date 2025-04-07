@@ -25,14 +25,38 @@ public class Movement : MonoBehaviour
     {
         objectTracker = FindObjectOfType<ObjectTracker>();
         creature = GetComponent<Creature>();
+        
+        // Try to get the CharacterController component
         controller = GetComponent<CharacterController>();
+        
+        // Check if we found it, if not, add one
+        if (controller == null)
+        {
+            Debug.LogWarning("No CharacterController found on " + gameObject.name + ", adding one automatically.");
+            controller = gameObject.AddComponent<CharacterController>();
+            // Set some reasonable default values
+            controller.height = 2.0f;
+            controller.radius = 0.5f;
+            controller.center = new Vector3(0, 1.0f, 0);
+        }
     }
 
     public void Move(float FB, float LR)
     {
+        // Ensure we have a controller before trying to use it
+        if (controller == null)
+        {
+            controller = GetComponent<CharacterController>();
+            if (controller == null)
+            {
+                Debug.LogError("No CharacterController available on " + gameObject.name);
+                return;
+            }
+        }
+        
         //clamp the values of LR and FB
         LR = Mathf.Clamp(LR, -1, 1);
-        FB = Mathf.Clamp(FB, 0, 1);
+        FB = Mathf.Clamp(FB, 0.3f, 1); // Changed from 0 to 0.3f as minimum to ensure movement
 
         //move the agent
         if (!creature.isDead)
@@ -42,9 +66,8 @@ public class Movement : MonoBehaviour
 
             // Move forward / backward
             Vector3 forward = transform.TransformDirection(Vector3.forward);
-            controller.SimpleMove(forward * speed * FB * -1);
+            controller.SimpleMove(forward * speed * FB);
         }
-
 
         //Checks to see if the agent is grounded, if it is, don't apply gravity
         if (controller.isGrounded && playerVelocity.y < 0)

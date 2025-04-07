@@ -7,6 +7,17 @@ public class CreatureSpawner : MonoBehaviour
     public GameObject agentPrefab;
     private GameObject[] agentList;
     public int floorScale = 1;
+    public int initialPopulation = 5;
+    public int spawnRadius = 20;
+
+    void Start()
+    {
+        // Spawn initial population
+        for (int i = 0; i < initialPopulation; i++)
+        {
+            SpawnCreature();
+        }
+    }
 
     // Update is called once per frame
     void FixedUpdate()
@@ -23,8 +34,26 @@ public class CreatureSpawner : MonoBehaviour
 
     void SpawnCreature()
     {
-        int x = Random.Range(-1, 1)*floorScale;
-        int z = Random.Range(1, 1)*floorScale;
-        Instantiate(agentPrefab, new Vector3((float)x, 0.75f, (float)z), Quaternion.identity);
+        // Create a random position within the spawn radius
+        float randomAngle = Random.Range(0f, 360f);
+        float randomDistance = Random.Range(0f, spawnRadius);
+        
+        // Convert polar coordinates to Cartesian
+        float x = Mathf.Cos(randomAngle * Mathf.Deg2Rad) * randomDistance * floorScale;
+        float z = Mathf.Sin(randomAngle * Mathf.Deg2Rad) * randomDistance * floorScale;
+        
+        // Instantiate the wolf slightly above the ground to ensure it doesn't fall through
+        GameObject newCreature = Instantiate(agentPrefab, new Vector3(x, 1.0f, z), Quaternion.identity);
+        
+        // Make sure it has all required components
+        if (!newCreature.GetComponent<CharacterController>())
+        {
+            CharacterController controller = newCreature.AddComponent<CharacterController>();
+            controller.height = 2.0f;
+            controller.radius = 0.5f;
+            controller.center = new Vector3(0, 1.0f, 0);
+        }
+        
+        Debug.Log("Spawned new creature at position: " + newCreature.transform.position);
     }
 }

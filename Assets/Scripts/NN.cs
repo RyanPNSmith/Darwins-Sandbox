@@ -93,6 +93,13 @@ public class NN : MonoBehaviour
 
                 //add the bias
                 nodeArray[i] += biasesArray[i];
+                
+                // Add a small positive bias to the first output neuron (FB movement)
+                // to encourage forward movement in new creatures
+                if (i == 0 && n_neurons == 2) // This should only apply to the output layer's first neuron
+                {
+                    nodeArray[i] += 0.2f; // Small positive bias for forward movement
+                }
             }
         }
 
