@@ -32,7 +32,6 @@ public class Creature : MonoBehaviour
     // Core attributes
     public GameObject agentPrefab;
     public bool isUser = false;
-    public float size = 1.0f;
     
     // Vision attributes
     public float viewDistance = 20f;
@@ -152,7 +151,6 @@ public class Creature : MonoBehaviour
         if(!isMutated)
         {
             MutateCreature();
-            this.transform.localScale = new Vector3(size, size, size);
             isMutated = true;
         }
 
@@ -312,14 +310,27 @@ public class Creature : MonoBehaviour
     // Add tag check helper method at the top of the class
     private bool IsPrey(GameObject obj)
     {
-        if (obj == null) return false;
+        if (obj == null) 
+        {
+            Debug.LogWarning("Null object passed to IsPrey check");
+            return false;
+        }
         
         // Check if it has the Food tag
         try {
-            return obj.CompareTag("Food");
+            bool isFood = obj.CompareTag("Food");
+            
+            // Only log occasionally to avoid spam
+            if (Random.value < 0.01f)
+            {
+                Debug.Log("IsPrey check for object: " + obj.name + ", Tag: " + obj.tag + ", Result: " + isFood);
+            }
+            
+            return isFood;
         }
-        catch {
+        catch (System.Exception e) {
             // In case of exceptions, handle gracefully
+            Debug.LogError("Error checking prey tag on " + obj.name + ": " + e.Message);
             return false;
         }
     }
@@ -698,15 +709,28 @@ public class Creature : MonoBehaviour
         // Use the helper method
         if (IsPrey(col.gameObject))
         {
-            // Eat the prey - INCREASES hunger now
-            hunger += hungerGained;
-            hunger = Mathf.Min(hunger, maxHunger);
+            Debug.Log("Wolf collided with food: " + col.gameObject.name);
             
-            // Gain reproduction hunger
-            reproductionHunger -= reproductionHungerGained;
-            
-            // Remove the eaten prey
-            Destroy(col.gameObject);
+            // Try to get the Prey component
+            Prey prey = col.gameObject.GetComponent<Prey>();
+            if (prey != null)
+            {
+                // Let the prey handle being eaten
+                prey.GetEaten(this);
+            }
+            else
+            {
+                // Fallback for prey without the Prey component
+                // Eat the prey - INCREASES hunger now
+                hunger += hungerGained;
+                hunger = Mathf.Min(hunger, maxHunger);
+                
+                // Gain reproduction hunger
+                reproductionHunger -= reproductionHungerGained;
+                
+                // Remove the eaten prey
+                Destroy(col.gameObject);
+            }
             
             // Clear target
             if (targetPrey == col.gameObject)
@@ -803,7 +827,7 @@ public class Creature : MonoBehaviour
                 // Mix neural networks from both parents with mutations
                 Creature childCreature = child.GetComponent<Creature>();
                 if (childCreature != null && childCreature.nn != null)
-                {
+                {                    
                     // 50% chance to inherit from each parent for each layer
                     for (int layerIdx = 0; layerIdx < nn.layers.Length; layerIdx++)
                     {

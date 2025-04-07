@@ -8,7 +8,6 @@ public class FoodSpawner : MonoBehaviour
     public GameObject foodPrefab;  // The food/sheep prefab to spawn
     public Transform platform;     // Reference to the platform
     public int maxFood = 20;       // Maximum number of food items at once
-    public int initialFoodCount = 10;  // Number of food items to spawn at start
     public float spawnRate = 2f;   // Time between spawn attempts
     
     [Header("Size Detection")]
@@ -54,8 +53,8 @@ public class FoodSpawner : MonoBehaviour
             DetectPlatformSize();
         }
         
-        // Start with initial food count
-        for (int i = 0; i < Mathf.Min(initialFoodCount, maxFood); i++)
+        // Start with some initial food
+        for (int i = 0; i < maxFood / 2; i++)
         {
             SpawnFood();
         }
@@ -117,29 +116,8 @@ public class FoodSpawner : MonoBehaviour
         float xPos = Random.Range(platformCenter.x - halfWidth, platformCenter.x + halfWidth);
         float zPos = Random.Range(platformCenter.z - halfHeight, platformCenter.z + halfHeight);
         
-        // Get the platform's height and add the food object's height/2 plus a small buffer
-        float yOffset = 1.0f; // Default height offset
-        
-        // Try to get the food prefab's height
-        if (foodPrefab != null && foodPrefab.GetComponent<Renderer>() != null)
-        {
-            yOffset = foodPrefab.GetComponent<Renderer>().bounds.extents.y + 0.1f;
-        }
-        // If platform has a renderer or collider, use its height
-        else if (platformRenderer != null)
-        {
-            yOffset = platformRenderer.bounds.extents.y + 1.0f;
-        }
-        else if (platformCollider != null)
-        {
-            yOffset = platformCollider.bounds.extents.y + 1.0f;
-        }
-        
-        // Create spawn position with proper height offset
-        Vector3 spawnPos = new Vector3(xPos, platformCenter.y + yOffset, zPos);
-        
-        // Debug info
-        Debug.Log($"Spawning food at height: {spawnPos.y} (Platform Y: {platformCenter.y}, Offset: {yOffset})");
+        // Add a small vertical offset to avoid spawning inside platform
+        Vector3 spawnPos = new Vector3(xPos, platformCenter.y + 0.5f, zPos);
         
         // Check if position is valid (not too close to other food)
         if (IsClearPosition(spawnPos, 2.0f))

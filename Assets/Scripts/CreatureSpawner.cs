@@ -43,7 +43,7 @@ public class CreatureSpawner : MonoBehaviour
         float z = Mathf.Sin(randomAngle * Mathf.Deg2Rad) * randomDistance * floorScale;
         
         // Instantiate the wolf slightly above the ground to ensure it doesn't fall through
-        GameObject newCreature = Instantiate(agentPrefab, new Vector3(x, 1.0f, z), Quaternion.identity);
+        GameObject newCreature = Instantiate(agentPrefab, new Vector3(x, 1.5f, z), Quaternion.identity);
         
         // Make sure it has all required components
         if (!newCreature.GetComponent<CharacterController>())
