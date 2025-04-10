@@ -2,8 +2,40 @@
 
 public class NN : MonoBehaviour
 {
-    public int[] networkShape = {5,32,2};
-    public Layer [] layers;
+    public int[] networkShape = {9, 32, 2};  // Fix at 9 inputs
+    public Layer[] layers;
+    private bool networkInitialized = false;
+    public bool showDebugLogs = false;  // Control debug logging
+
+    private void UpdateNetworkShape(int numInputs)
+    {
+        // Only update if absolutely necessary and network isn't initialized
+        if (!networkInitialized)
+        {
+            numInputs = 9;  // Force to always use 9 inputs
+            
+            int oldInputs = networkShape != null && networkShape.Length > 0 ? networkShape[0] : 0;
+            if (showDebugLogs) {
+                Debug.Log($"Initializing neural network: [{numInputs}, 32, 2] (was [{oldInputs}, 32, 2])");
+            }
+            networkShape = new int[] { numInputs, 32, 2 };
+            InitializeNetwork();
+        }
+    }
+    
+    private void InitializeNetwork()
+    {
+        // Initialize the layers
+        layers = new Layer[networkShape.Length - 1];
+        for (int i = 0; i < layers.Length; i++)
+        {
+            layers[i] = new Layer(networkShape[i], networkShape[i+1]);
+        }
+        networkInitialized = true;
+        
+        // This ensures that the random numbers we generate aren't the same pattern each time.
+        Random.InitState((int)System.DateTime.Now.Ticks);
+    }
 
     // Property to access and modify weights
     public float[] weights
@@ -59,32 +91,72 @@ public class NN : MonoBehaviour
     }
 
     // Awake is called when the script instance is being loaded.
-    // Start is called before the first frame update.
-    // Awake gets called before Start which is why we use Awake here
     public void Awake()
     {
-        layers = new Layer[networkShape.Length - 1];
-
-        for(int i = 0; i < layers.Length; i++)
+        // Check if network is already initialized
+        if (networkInitialized) return;
+        
+        // Always use 9 inputs - fixed size to match TOTAL_INPUTS in Creature.cs
+        int numInputs = 9;
+        UpdateNetworkShape(numInputs);
+    }
+    
+    private string GetNetworkShapeString()
+    {
+        if (networkShape == null || networkShape.Length == 0) return "[]";
+        
+        string result = "[";
+        for (int i = 0; i < networkShape.Length; i++)
         {
-            layers[i] = new Layer(networkShape[i], networkShape[i+1]);
+            result += networkShape[i];
+            if (i < networkShape.Length - 1) result += ", ";
         }
-
-        //This ensures that the random numbers we generate aren't the same pattern each time. 
-        Random.InitState((int)System.DateTime.Now.Ticks);
+        result += "]";
+        return result;
     }
 
-    //This function is used to feed forward the inputs through the network, and return the output, which is the decision of the network, in this case, the direction to move in.
-    public float[] Brain(float [] inputs)
+    // This function is used to feed forward the inputs through the network and return the output
+    public float[] Brain(float[] inputs)
     {
-        for(int i = 0; i < layers.Length; i++)
+        // Make sure network is initialized
+        if (!networkInitialized)
         {
-            if(i == 0)
+            Awake();
+        }
+        
+        // If input size doesn't match but network is already initialized, pad or truncate
+        if (inputs.Length != networkShape[0])
+        {
+            float[] adjustedInputs = new float[networkShape[0]];
+            
+            // Copy as many inputs as possible
+            for (int i = 0; i < Mathf.Min(inputs.Length, networkShape[0]); i++)
+            {
+                adjustedInputs[i] = inputs[i];
+            }
+            
+            // Fill any remaining slots with 1.0 (max sensor distance)
+            for (int i = inputs.Length; i < networkShape[0]; i++)
+            {
+                adjustedInputs[i] = 1.0f;
+            }
+            
+            // Use adjusted inputs
+            inputs = adjustedInputs;
+            
+            if (showDebugLogs) {
+                Debug.Log($"Adjusted input array from size {inputs.Length} to {networkShape[0]}");
+            }
+        }
+
+        for (int i = 0; i < layers.Length; i++)
+        {
+            if (i == 0)
             {
                 layers[i].Forward(inputs);
                 layers[i].Activation();
             } 
-            else if(i == layers.Length - 1)
+            else if (i == layers.Length - 1)
             {
                 layers[i].Forward(layers[i - 1].nodeArray);
             }
@@ -147,11 +219,31 @@ public class NN : MonoBehaviour
                 //add the bias
                 nodeArray[i] += biasesArray[i];
                 
-                // Add a small positive bias to the first output neuron (FB movement)
-                // to encourage forward movement in new creatures
-                if (i == 0 && n_neurons == 2) // This should only apply to the output layer's first neuron
+                // Special handling for hunting behavior in output layer
+                if (i == 0 && n_neurons == 2) // This is the FB (forward/backward) output neuron
                 {
-                    nodeArray[i] += 0.2f; // Small positive bias for forward movement
+                    // Default small bias for forward movement
+                    nodeArray[i] += 0.2f;
+                    
+                    // If input includes prey info (assuming prey direction is input index numSensors+1)
+                    if (inputsArray.Length >= 9 && inputsArray[inputsArray.Length-2] != 0)
+                    {
+                        // Apply a MUCH stronger forward movement bias when prey is detected
+                        float preyDistanceInput = inputsArray[inputsArray.Length-1];
+                        nodeArray[i] += 0.8f; // Strong base forward movement when prey detected
+                        nodeArray[i] += preyDistanceInput * 0.5f; // Additional speed boost based on proximity
+                    }
+                }
+                // For the turning neuron, add bias based on prey direction
+                else if (i == 1 && n_neurons == 2 && inputsArray.Length >= 9)
+                {
+                    // If prey direction input exists
+                    float preyDirection = inputsArray[inputsArray.Length-2];
+                    if (preyDirection != 0)
+                    {
+                        // Apply a MUCH stronger turning bias in the direction of the prey
+                        nodeArray[i] += preyDirection * 0.9f;
+                    }
                 }
             }
         }
@@ -159,36 +251,37 @@ public class NN : MonoBehaviour
         //This function is the activation function for the neural network uncomment the one you want to use.
         public void Activation()
         {
-            // //leaky relu function
-             for(int i = 0; i < nodeArray.Length; i++)
-             {
-                 if(nodeArray[i] < 0)
-                 {
-                     nodeArray[i] = nodeArray[i]/10;
-                 }
-             }
-
-
-             //sigmoid function
-             for(int i = 0; i < nodeArray.Length; i++)
-             {
-                 nodeArray[i] = 1/(1 + Mathf.Exp(-nodeArray[i]));
-             }
-
-            //tanh function
+            // Use only Tanh activation function for consistent behavior
             for(int i = 0; i < nodeArray.Length; i++)
             {
                 nodeArray[i] = (float)System.Math.Tanh(nodeArray[i]);
             }
+            
+            /* COMMENTED OUT UNUSED ACTIVATION FUNCTIONS
+            //leaky relu function
+            for(int i = 0; i < nodeArray.Length; i++)
+            {
+                if(nodeArray[i] < 0)
+                {
+                    nodeArray[i] = nodeArray[i]/10;
+                }
+            }
 
-             //relu function
-             for(int i = 0; i < nodeArray.Length; i++)
-             {
-                 if(nodeArray[i] < 0)
-                 {
-                     nodeArray[i] = 0;
-                 }
-             }
+            //sigmoid function
+            for(int i = 0; i < nodeArray.Length; i++)
+            {
+                nodeArray[i] = 1/(1 + Mathf.Exp(-nodeArray[i]));
+            }
+
+            //relu function
+            for(int i = 0; i < nodeArray.Length; i++)
+            {
+                if(nodeArray[i] < 0)
+                {
+                    nodeArray[i] = 0;
+                }
+            }
+            */
         }
 
         //This is used to randomly modify the weights and biases for the Evolution Sim and Genetic Algorithm.

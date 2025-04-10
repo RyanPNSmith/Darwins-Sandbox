@@ -22,7 +22,6 @@ public class CreatureUICanvas : MonoBehaviour
     public float hoverRadius = 1f;  // Radius for hover detection
     
     // Control visibility
-    private static bool isAnyWolfHovered = false;
     private static Creature hoveredCreature = null;
     private Camera mainCamera;
     private Color orangeColor = new Color(1f, 0.5f, 0f, 1f);
@@ -79,7 +78,6 @@ public class CreatureUICanvas : MonoBehaviour
         if (isMouseOver && !creature.isDead)
         {
             hoveredCreature = creature;
-            isAnyWolfHovered = true;
             UpdateUIValues(); // Update values when a new wolf is hovered
             SetUIVisibility(true); // Show UI
         }
@@ -87,7 +85,6 @@ public class CreatureUICanvas : MonoBehaviour
         else if (hoveredCreature == creature && !isMouseOver)
         {
             hoveredCreature = null;
-            isAnyWolfHovered = false;
             SetUIVisibility(false); // Hide UI
         }
     }
@@ -130,7 +127,6 @@ public class CreatureUICanvas : MonoBehaviour
         if (hoveredCreature == creature)
         {
             hoveredCreature = null;
-            isAnyWolfHovered = false;
             SetUIVisibility(false);
         }
         

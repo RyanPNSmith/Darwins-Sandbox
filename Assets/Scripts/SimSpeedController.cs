@@ -10,8 +10,7 @@ public class SimSpeedController : MonoBehaviour
     private float timeSum;
     public bool autoAdjust;
     public float gameSpeed = 1;
-
-
+    private float speedChangeAmount = 0.25f; // Amount to change speed when pressing + or -
 
 
     void Update() {
@@ -19,6 +18,20 @@ public class SimSpeedController : MonoBehaviour
         if (Input.GetKeyDown(KeyCode.Space))
         {
             autoAdjust = !autoAdjust;
+        }
+
+        // Use = key to increase speed (easier than + which requires shift)
+        if (Input.GetKeyDown(KeyCode.Equals) || Input.GetKeyDown(KeyCode.KeypadPlus))
+        {
+            autoAdjust = false; // Disable auto-adjust when manually changing speed
+            ChangeGameSpeed(speedChangeAmount);
+        }
+
+        // Use - key to decrease speed
+        if (Input.GetKeyDown(KeyCode.Minus) || Input.GetKeyDown(KeyCode.KeypadMinus))
+        {
+            autoAdjust = false; // Disable auto-adjust when manually changing speed
+            ChangeGameSpeed(-speedChangeAmount);
         }
 
         //calculate fps for update not fixed update
@@ -44,6 +57,25 @@ public class SimSpeedController : MonoBehaviour
         }
     }
 
+    void ChangeGameSpeed(float amount)
+    {
+        gameSpeed += amount;
+        ClampGameSpeed();
+        Time.timeScale = gameSpeed;
+    }
+
+    void ClampGameSpeed()
+    {
+        //keeps the game speed between 0.1 and 100 to prevent the game from freezing or crashing
+        if(gameSpeed < 0.1f){
+            gameSpeed = 0.1f;
+        }
+        else if(gameSpeed > 100)
+        {
+            gameSpeed = 100;
+        }
+    }
+
     void AdjustGameSpeed() {
         if (fpsAvg < 60)
         {
@@ -54,16 +86,7 @@ public class SimSpeedController : MonoBehaviour
             gameSpeed = gameSpeed * 1.1f;
         }
 
-
-        //keeps the game speed between 0.1 and 100 to prevent the game from freezing or crashing
-        if(gameSpeed < 0.1f){
-            gameSpeed = 0.1f;
-        }
-        else if(gameSpeed > 100)
-        {
-            gameSpeed = 100;
-        }
-
+        ClampGameSpeed();
         Time.timeScale = gameSpeed;
     }
 }

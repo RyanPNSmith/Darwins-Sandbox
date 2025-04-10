@@ -69,11 +69,11 @@ public class ObjectTracker : MonoBehaviour
         // A simple 2 color gradient with a fixed alpha of 1.0f.
         float alpha2 = 1.0f;
         Gradient gradient2 = new Gradient();
-        gradient.SetKeys(
+        gradient2.SetKeys(
             new GradientColorKey[] { new GradientColorKey(Color.green, 0.0f), new GradientColorKey(Color.green, 1.0f) },
-            new GradientAlphaKey[] { new GradientAlphaKey(alpha, 0.0f), new GradientAlphaKey(alpha, 1.0f) }
+            new GradientAlphaKey[] { new GradientAlphaKey(alpha2, 0.0f), new GradientAlphaKey(alpha2, 1.0f) }
         );
-        lineRenderer2.colorGradient = gradient;
+        lineRenderer2.colorGradient = gradient2;
 
         lineRenderer3 = go3.AddComponent<LineRenderer>();
         lineRenderer3.material = new Material(Shader.Find("Sprites/Default"));
@@ -84,11 +84,11 @@ public class ObjectTracker : MonoBehaviour
         // A simple 2 color gradient with a fixed alpha of 1.0f.
         float alpha3 = 1.0f;
         Gradient gradient3 = new Gradient();
-        gradient.SetKeys(
+        gradient3.SetKeys(
             new GradientColorKey[] { new GradientColorKey(Color.blue, 0.0f), new GradientColorKey(Color.blue, 1.0f) },
-            new GradientAlphaKey[] { new GradientAlphaKey(alpha, 0.0f), new GradientAlphaKey(alpha, 1.0f) }
+            new GradientAlphaKey[] { new GradientAlphaKey(alpha3, 0.0f), new GradientAlphaKey(alpha3, 1.0f) }
         );
-        lineRenderer3.colorGradient = gradient;
+        lineRenderer3.colorGradient = gradient3;
 
     }
 

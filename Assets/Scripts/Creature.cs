@@ -23,7 +23,6 @@ public class Creature : MonoBehaviour
     public float maxLoveLevel = 100f;
     public float loveIncreaseRate = 0.2f;
     public float loveThreshold = 100f;   // Changed from 75f to 100f - require full love
-    private bool isLookingForMate = false;
     private GameObject currentMate = null;
     private float matingDistance = 3f;
     private float matingTime = 5f;
@@ -35,7 +34,7 @@ public class Creature : MonoBehaviour
     
     // Vision attributes
     public float viewDistance = 20f;
-    public float viewAngle = 120f;
+    public float viewAngle = 360f;  // Changed to full 360 degrees for AOE
     
     // Energy attributes
     public float hunger = 100f;         // Start at 100 hunger (full)
@@ -58,17 +57,12 @@ public class Creature : MonoBehaviour
     public float idleMovementChance = 0.02f;
     public float wanderStrength = 0.3f;
     
-    // Neural network & mutation
-    public float mutationAmount = 0.8f;
-    public float mutationChance = 0.2f; 
-    public bool mutateMutations = true;
-    private bool isMutated = false;
+    // Neural network
     public NN nn;
     
     // Internal state tracking
     private Movement movement;
     private float[] sensorInputs;
-    private float elapsed = 0f;
     public float lifeSpan = 0f;
     public bool isDead = false;
     
@@ -79,6 +73,23 @@ public class Creature : MonoBehaviour
     private List<GameObject> detectedPreyList = new List<GameObject>();
     private List<GameObject> detectedMatesList = new List<GameObject>();
 
+    // Add debug visualization toggle
+    public bool showRaycasts = false;
+    public Color rayColor = Color.yellow;
+    public bool showAOESensors = true;  // New toggle for AOE visualization
+    public bool showDebugLogs = false;  // New toggle to control debug logging
+    
+    // Add AOE sensor settings
+    public int numSensors = 6;  // Number of directions to sense (evenly spaced in a circle)
+    public float[] sensorDistances;  // Will store detected distances
+    
+    // Make sure we always use a consistent size for inputs
+    private readonly int TOTAL_INPUTS = 9;  // 6 sensors + hunger + prey direction + prey distance
+
+    // Add prey detection input for neural network
+    private float preyDirectionInput = 0f;
+    private float preyDistanceInput = 1f;
+
     // Start is called before the first frame update
     void Awake()
     {
@@ -88,6 +99,12 @@ public class Creature : MonoBehaviour
         {
             nn = gameObject.AddComponent<NN>();
             Debug.LogWarning("NN component missing on " + gameObject.name + ". Adding it automatically.");
+        }
+        
+        // Set debug logging on NN component to match our setting
+        if (nn != null)
+        {
+            nn.showDebugLogs = showDebugLogs;
         }
         
         movement = GetComponent<Movement>();
@@ -130,7 +147,9 @@ public class Creature : MonoBehaviour
         }
         
         // Set up arrays and name
-        sensorInputs = new float[6]; // 5 direction sensors + 1 hunger level sensor
+        sensorDistances = new float[numSensors];
+        // Always initialize with TOTAL_INPUTS size
+        sensorInputs = new float[TOTAL_INPUTS]; 
         this.name = "Wolf";
         
         // Set the correct tag
@@ -140,20 +159,14 @@ public class Creature : MonoBehaviour
             Debug.LogWarning("Tag missing on " + gameObject.name + ". Setting tag to 'Agent'.");
         }
         
-        // Initialize state with random values to create variation
-        hunger = Random.Range(40f, maxHunger);
+        // Initialize state with fixed values for consistent behavior
+        hunger = maxHunger * 0.7f; // Start at 70% hunger
         loveLevel = Random.Range(0f, maxLoveLevel / 2);
     }
 
     // Update is called once per frame
     void FixedUpdate()
     {
-        if(!isMutated)
-        {
-            MutateCreature();
-            isMutated = true;
-        }
-
         ManageEnergy();
         UpdateStateAndBehavior();
         movement.Move(FB, LR);
@@ -165,18 +178,21 @@ public class Creature : MonoBehaviour
         DetectPrey();
         DetectMates();
         
-        // Visualize view cone based on current state
-        DrawViewCone();
-        
         // Calculate inputs for neural network (5 distance sensors + hunger level)
         UpdateSensorInputs();
         
-        // Get outputs from neural network
+        // Get outputs from neural network - these will be our base movement values
         float[] outputsFromNN = nn.Brain(sensorInputs);
         
-        // Default behavior from neural network
+        // Use neural network outputs directly without clamping
         FB = outputsFromNN[0];
         LR = outputsFromNN[1];
+        
+        // Apply wandering behavior which may override the neural network
+        if (Random.value < 0.3f)  // 30% chance to override NN with wandering
+        {
+            ApplyWanderingBehavior();
+        }
         
         // Update state machine
         UpdateStateMachine();
@@ -189,14 +205,10 @@ public class Creature : MonoBehaviour
                 {
                     ApplyHuntingBehavior();
                 }
-                else
-                {
-                    ApplyWanderingBehavior();
-                }
                 break;
                 
             case WolfState.Wandering:
-                ApplyWanderingBehavior();
+                // Already applied wandering behavior
                 break;
                 
             case WolfState.Mating:
@@ -204,16 +216,15 @@ public class Creature : MonoBehaviour
                 {
                     ApplyMatingBehavior();
                 }
-                else
-                {
-                    currentState = WolfState.Wandering;
-                }
                 break;
                 
             case WolfState.Resting:
-                // When resting, move very little
-                FB = 0.1f;
-                LR = Random.Range(-0.1f, 0.1f);
+                // Resting - minimal forward movement with occasional turning
+                FB = 0.2f;
+                if (Random.value < 0.05f)
+                {
+                    LR = Random.Range(-1.0f, 1.0f);
+                }
                 break;
         }
         
@@ -221,7 +232,20 @@ public class Creature : MonoBehaviour
         if (isUser)
         {
             FB = Input.GetAxis("Vertical");
-            LR = Input.GetAxis("Horizontal") / 5f;
+            LR = Input.GetAxis("Horizontal");
+        }
+        
+        // Ensure extreme values for turning
+        if (Mathf.Abs(LR) < 0.3f && Random.value < 0.1f)
+        {
+            // Force more extreme turning if the current value is too weak
+            LR = Mathf.Sign(LR) * Random.Range(0.5f, 1.0f);
+        }
+        
+        // Debug log movements
+        if (Time.frameCount % 60 == 0)
+        {
+            // Debug.Log($"Wolf state: {currentState}, Movement: FB={FB}, LR={LR}");
         }
     }
     
@@ -241,30 +265,29 @@ public class Creature : MonoBehaviour
         switch(currentState)
         {
             case WolfState.Wandering:
-                // If hunger is below threshold, switch to hunting (only if prey is detected)
+                // PRIORITY: If hungry (below 50%) and prey is detected, switch to hunting
                 if (hunger < hungerThreshold && targetPrey != null)
                 {
                     currentState = WolfState.Hunting;
                     stateTimer = 0f;
                 }
-                // If ready to mate (FULL love) and a mate is found, switch to mating
-                else if (loveLevel >= maxLoveLevel && currentMate != null)
+                // If ready to mate (FULL love) and a mate is found AND not hungry, switch to mating
+                else if (loveLevel >= maxLoveLevel && currentMate != null && hunger >= hungerThreshold)
                 {
                     currentState = WolfState.Mating;
                     stateTimer = 0f;
-                    isLookingForMate = true;
                 }
                 break;
                 
             case WolfState.Hunting:
                 // If not hungry or no prey, go back to wandering
-                if (targetPrey == null || hunger >= hungerThreshold)
+                if (targetPrey == null || hunger >= hungerThreshold * 1.2f) // Give some buffer before leaving hunting
                 {
                     currentState = WolfState.Wandering;
                     stateTimer = 0f;
                 }
-                // If love is full, prioritize mating over eating (unless very hungry)
-                else if (loveLevel >= maxLoveLevel && hunger > hungerThreshold * 0.7f && currentMate != null)
+                // Only consider mating if we're not hungry
+                else if (loveLevel >= maxLoveLevel && currentMate != null && hunger >= hungerThreshold)
                 {
                     currentState = WolfState.Mating;
                     stateTimer = 0f;
@@ -272,20 +295,17 @@ public class Creature : MonoBehaviour
                 break;
                 
             case WolfState.Mating:
+                // If mate is lost, go back to wandering
                 if (currentMate == null)
                 {
-                    // If mate is lost, go back to wandering
                     currentState = WolfState.Wandering;
                     stateTimer = 0f;
-                    isLookingForMate = false;
                 }
-                else if (matingTimer >= matingTime)
+                // If we get hungry during mating, prioritize hunting
+                else if (hunger < hungerThreshold && targetPrey != null)
                 {
-                    // After mating, rest for a while
-                    currentState = WolfState.Resting;
+                    currentState = WolfState.Hunting;
                     stateTimer = 0f;
-                    isLookingForMate = false;
-                    loveLevel = 0f; // Reset love after mating
                 }
                 break;
                 
@@ -300,7 +320,7 @@ public class Creature : MonoBehaviour
         }
         
         // Emergency transition - if very hungry, always prioritize hunting over other states
-        if (hunger < hungerThreshold * 0.5f && targetPrey != null && currentState != WolfState.Hunting)
+        if (hunger < hungerThreshold * 0.6f && targetPrey != null && currentState != WolfState.Hunting)
         {
             currentState = WolfState.Hunting;
             stateTimer = 0f;
@@ -312,25 +332,26 @@ public class Creature : MonoBehaviour
     {
         if (obj == null) 
         {
-            Debug.LogWarning("Null object passed to IsPrey check");
             return false;
         }
         
-        // Check if it has the Food tag
+        // Check for the Food tag
         try {
             bool isFood = obj.CompareTag("Food");
             
-            // Only log occasionally to avoid spam
-            if (Random.value < 0.01f)
+            // Log food detection more frequently when hungry
+            if (isFood && hunger < maxHunger * 0.5f && Random.value < 0.1f && showDebugLogs)
             {
-                Debug.Log("IsPrey check for object: " + obj.name + ", Tag: " + obj.tag + ", Result: " + isFood);
+                // Debug.Log($"FOOD DETECTED: {obj.name} is food! Current hunger: {hunger:F1}");
             }
             
             return isFood;
         }
         catch (System.Exception e) {
             // In case of exceptions, handle gracefully
-            Debug.LogError("Error checking prey tag on " + obj.name + ": " + e.Message);
+            if (showDebugLogs) {
+                // Debug.LogError("Error checking prey tag on " + obj.name + ": " + e.Message);
+            }
             return false;
         }
     }
@@ -345,8 +366,8 @@ public class Creature : MonoBehaviour
             if (obj.CompareTag("Agent"))
             {
                 Creature otherCreature = obj.GetComponent<Creature>();
-                // Check if other creature has FULL love level (100)
-                if (otherCreature != null && otherCreature.loveLevel >= otherCreature.maxLoveLevel)
+                // Check if other creature has full love level
+                if (otherCreature != null && !otherCreature.isDead && otherCreature.loveLevel >= otherCreature.maxLoveLevel)
                 {
                     return true;
                 }
@@ -358,251 +379,156 @@ public class Creature : MonoBehaviour
         }
     }
     
-    void DetectPrey()
-    {
-        // Clear previous detections but keep tracked prey in memory for a while
-        detectedPreyList.Clear();
-        
-        // If we have a target but lost sight, count down memory timer
-        if (targetPrey != null)
-        {
-            preyTrackedTimer -= Time.deltaTime;
-            if (preyTrackedTimer <= 0f || targetPrey == null)
-            {
-                targetPrey = null;
-            }
-        }
-        
-        // Detect prey in view cone
-        Collider[] hitColliders = Physics.OverlapSphere(transform.position, viewDistance);
-        foreach (var hitCollider in hitColliders)
-        {
-            // Use helper method to check if it's prey
-            if (IsPrey(hitCollider.gameObject))
-            {
-                // Check if prey is within view angle
-                Vector3 directionToPrey = hitCollider.transform.position - transform.position;
-                float angleToTarget = Vector3.Angle(transform.forward, directionToPrey);
-                
-                if (angleToTarget <= viewAngle / 2)
-                {
-                    // Check line of sight
-                    RaycastHit hit;
-                    if (Physics.Raycast(transform.position + Vector3.up * 0.1f, directionToPrey.normalized, out hit, viewDistance))
-                    {
-                        if (IsPrey(hit.collider.gameObject))
-                        {
-                            // Valid prey in sight
-                            detectedPreyList.Add(hitCollider.gameObject);
-                            Debug.DrawLine(transform.position + Vector3.up * 0.1f, hit.point, Color.green);
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Set new target prey if we don't already have one
-        if (detectedPreyList.Count > 0 && targetPrey == null)
-        {
-            // Find closest prey
-            float closestDistance = float.MaxValue;
-            GameObject closestPrey = null;
-            
-            foreach (var prey in detectedPreyList)
-            {
-                float distance = Vector3.Distance(transform.position, prey.transform.position);
-                if (distance < closestDistance)
-                {
-                    closestDistance = distance;
-                    closestPrey = prey;
-                }
-            }
-            
-            targetPrey = closestPrey;
-            preyTrackedTimer = preyMemoryDuration;
-        }
-        else if (detectedPreyList.Count > 0 && targetPrey != null)
-        {
-            // We have prey in sight, reset memory timer
-            preyTrackedTimer = preyMemoryDuration;
-            
-            // Check if our target is still in the detected list
-            bool targetStillVisible = false;
-            foreach (var prey in detectedPreyList)
-            {
-                if (prey == targetPrey)
-                {
-                    targetStillVisible = true;
-                    break;
-                }
-            }
-            
-            // If not, choose the closest visible prey
-            if (!targetStillVisible)
-            {
-                float closestDistance = float.MaxValue;
-                GameObject closestPrey = null;
-                
-                foreach (var prey in detectedPreyList)
-                {
-                    float distance = Vector3.Distance(transform.position, prey.transform.position);
-                    if (distance < closestDistance)
-                    {
-                        closestDistance = distance;
-                        closestPrey = prey;
-                    }
-                }
-                
-                targetPrey = closestPrey;
-            }
-        }
-    }
-    
-    void DetectMates()
-    {
-        // Only look for mates if ready
-        if (loveLevel < loveThreshold)
-        {
-            currentMate = null;
-            isLookingForMate = false;
-            return;
-        }
-        
-        // Clear previous mate detections
-        detectedMatesList.Clear();
-        
-        // Detect potential mates in view cone
-        Collider[] hitColliders = Physics.OverlapSphere(transform.position, viewDistance);
-        foreach (var hitCollider in hitColliders)
-        {
-            if (IsPotentialMate(hitCollider.gameObject))
-            {
-                // Check if within view angle
-                Vector3 directionToMate = hitCollider.transform.position - transform.position;
-                float angleToMate = Vector3.Angle(transform.forward, directionToMate);
-                
-                if (angleToMate <= viewAngle / 2)
-                {
-                    // Check line of sight
-                    RaycastHit hit;
-                    if (Physics.Raycast(transform.position + Vector3.up * 0.1f, directionToMate.normalized, out hit, viewDistance))
-                    {
-                        if (hit.collider.gameObject == hitCollider.gameObject)
-                        {
-                            // Valid mate in sight
-                            detectedMatesList.Add(hitCollider.gameObject);
-                            Debug.DrawLine(transform.position + Vector3.up * 0.1f, hit.point, Color.magenta);
-                        }
-                    }
-                }
-            }
-        }
-        
-        // Find closest mate
-        if (detectedMatesList.Count > 0)
-        {
-            float closestDistance = float.MaxValue;
-            GameObject closestMate = null;
-            
-            foreach (var mate in detectedMatesList)
-            {
-                float distance = Vector3.Distance(transform.position, mate.transform.position);
-                if (distance < closestDistance)
-                {
-                    closestDistance = distance;
-                    closestMate = mate;
-                }
-            }
-            
-            currentMate = closestMate;
-            isLookingForMate = true;
-        }
-        else if (isLookingForMate && detectedMatesList.Count == 0)
-        {
-            // Lost sight of potential mates
-            if (currentMate != null)
-            {
-                // Check if current mate is still valid and in range
-                if (currentMate != null && Vector3.Distance(transform.position, currentMate.transform.position) > viewDistance)
-                {
-                    currentMate = null;
-                }
-            }
-        }
-    }
-    
-    void DrawViewCone()
-    {
-        float halfAngle = viewAngle / 2;
-        Quaternion leftRayRotation = Quaternion.AngleAxis(-halfAngle, Vector3.up);
-        Quaternion rightRayRotation = Quaternion.AngleAxis(halfAngle, Vector3.up);
-        Vector3 leftRayDirection = leftRayRotation * transform.forward;
-        Vector3 rightRayDirection = rightRayRotation * transform.forward;
-        
-        // Color based on state
-        Color coneColor = Color.yellow;
-        switch (currentState)
-        {
-            case WolfState.Hunting: coneColor = Color.red; break;
-            case WolfState.Mating: coneColor = Color.magenta; break;
-            case WolfState.Resting: coneColor = Color.blue; break;
-        }
-        
-        Debug.DrawRay(transform.position + Vector3.up * 0.1f, leftRayDirection * viewDistance, coneColor);
-        Debug.DrawRay(transform.position + Vector3.up * 0.1f, transform.forward * viewDistance, coneColor);
-        Debug.DrawRay(transform.position + Vector3.up * 0.1f, rightRayDirection * viewDistance, coneColor);
-    }
-    
     void UpdateSensorInputs()
     {
-        // Use 5 raycasts for environmental sensing
-        int numRaycasts = 5;
-        float angleBetweenRaycasts = 30;
-
-        for (int i = 0; i < numRaycasts; i++)
+        // Always create a fixed-size array matching TOTAL_INPUTS (9)
+        sensorInputs = new float[TOTAL_INPUTS];
+        
+        // Initialize all inputs to default values (no objects detected)
+        for (int i = 0; i < TOTAL_INPUTS; i++)
         {
-            float angle = ((2 * i + 1 - numRaycasts) * angleBetweenRaycasts / 2);
-            Quaternion rotation = Quaternion.AngleAxis(angle, Vector3.up);
-            Vector3 rayDirection = rotation * transform.forward;
-            Vector3 rayStart = transform.position + Vector3.up * 0.1f;
+            sensorInputs[i] = 1.0f;  // Default to max distance/no detection
+        }
+        
+        // Initialize sensor distances to max view distance
+        for (int i = 0; i < numSensors; i++)
+        {
+            sensorDistances[i] = viewDistance;
+        }
+
+        // Reset prey detection inputs
+        preyDirectionInput = 0f;
+        preyDistanceInput = 1f;
+
+        // Detect objects in all directions using OverlapSphere
+        Collider[] hitColliders = Physics.OverlapSphere(transform.position, viewDistance);
+        
+        foreach (var hitCollider in hitColliders)
+        {
+            // Skip self
+            if (hitCollider.gameObject == gameObject) continue;
             
-            // Default to max distance
-            sensorInputs[i] = 1.0f;
+            // Get direction and distance to the detected object
+            Vector3 directionToObject = hitCollider.transform.position - transform.position;
+            float distanceToObject = directionToObject.magnitude;
             
-            RaycastHit hit;
-            if (Physics.Raycast(rayStart, rayDirection, out hit, viewDistance))
+            // Check if this is prey
+            bool isPrey = IsPrey(hitCollider.gameObject);
+            
+            // If it's prey, update prey direction input for neural network
+            if (isPrey && (targetPrey == hitCollider.gameObject || targetPrey == null))
             {
-                // Normalize distance value between 0-1
-                sensorInputs[i] = hit.distance / viewDistance;
+                // Calculate angle for prey direction
+                float preyAngleFromForward = Vector3.SignedAngle(transform.forward, directionToObject, Vector3.up);
                 
-                // Use color to indicate what was detected
-                Color rayColor = Color.white;
+                // Normalize to -1 to 1 range for neural network
+                preyDirectionInput = Mathf.Clamp(preyAngleFromForward / 90f, -1f, 1f);
                 
-                if (IsPrey(hit.collider.gameObject))
-                {
-                    rayColor = Color.green; // Prey
-                }
-                else if (IsPotentialMate(hit.collider.gameObject))
-                {
-                    rayColor = Color.magenta; // Potential mate
-                }
-                else
-                {
-                    rayColor = Color.red; // Obstacle
-                }
+                // Normalize distance to 0-1 range (0 = far, 1 = close)
+                preyDistanceInput = 1f - Mathf.Clamp01(distanceToObject / viewDistance);
                 
-                Debug.DrawRay(rayStart, rayDirection * hit.distance, rayColor);
+                // Visualize prey detection
+                if (showAOESensors)
+                {
+                    Debug.DrawLine(
+                        transform.position + Vector3.up * 0.1f, 
+                        hitCollider.transform.position, 
+                        Color.red, 
+                        0.1f
+                    );
+                    
+                    // Debug log prey detection - only if debug logging enabled
+                    if (Time.frameCount % 60 == 0 && showDebugLogs)
+                    {
+                        // Debug.Log($"Prey detected: Angle={preyAngleFromForward:F1}, Direction={preyDirectionInput:F2}, Distance={preyDistanceInput:F2}");
+                    }
+                }
             }
-            else
+            
+            // Determine which sensor this object belongs to based on angle
+            float sensorAngleFromForward = Vector3.SignedAngle(transform.forward, directionToObject, Vector3.up);
+            // Convert to 0-360 range
+            if (sensorAngleFromForward < 0) sensorAngleFromForward += 360f;
+            
+            // Calculate which sensor this belongs to
+            int sensorIndex = Mathf.FloorToInt(sensorAngleFromForward / (360f / numSensors));
+            sensorIndex = Mathf.Clamp(sensorIndex, 0, numSensors - 1);
+            
+            // Update sensor distance if this object is closer than previously detected
+            if (distanceToObject < sensorDistances[sensorIndex])
             {
-                // Nothing detected
-                Debug.DrawRay(rayStart, rayDirection * viewDistance, Color.blue);
+                sensorDistances[sensorIndex] = distanceToObject;
+                
+                // Draw debug visualization if enabled
+                if (showAOESensors)
+                {
+                    Debug.DrawLine(
+                        transform.position + Vector3.up * 0.1f, 
+                        hitCollider.transform.position, 
+                        GetSensorColor(sensorIndex), 
+                        0.1f
+                    );
+                }
             }
         }
         
-        // Add normalized hunger level as the last input
-        // Now lower hunger means higher need to find food (1.0 = empty/starving, 0.0 = full)
-        sensorInputs[5] = 1.0f - (hunger / maxHunger);
+        // Convert sensor distances to neural network inputs (normalized 0-1)
+        // Only copy as many sensors as we have, and only up to 6 (leaving room for hunger and prey data)
+        int sensorsToCopy = Mathf.Min(numSensors, 6);
+        for (int i = 0; i < sensorsToCopy; i++)
+        {
+            // Normalize distance (0 = object is touching, 1 = no object detected within range)
+            sensorInputs[i] = sensorDistances[i] / viewDistance;
+        }
+        
+        // Add hunger level as input at index 6
+        sensorInputs[6] = 1.0f - (hunger / maxHunger);
+        
+        // Add prey direction and distance as additional inputs at indices 7 and 8
+        sensorInputs[7] = preyDirectionInput; // Direction to turn to reach prey (-1 to 1)
+        sensorInputs[8] = preyDistanceInput;  // How close prey is (0 to 1)
+        
+        // Draw the sensor ranges if visualization is enabled
+        if (showAOESensors)
+        {
+            DrawAOESensors();
+        }
+    }
+    
+    // Visualize the AOE sensors
+    private void DrawAOESensors()
+    {
+        float angleStep = 360f / numSensors;
+        
+        for (int i = 0; i < numSensors; i++)
+        {
+            float angle = i * angleStep;
+            Quaternion rotation = Quaternion.Euler(0, angle, 0);
+            Vector3 direction = rotation * Vector3.forward;
+            
+            // Draw a ray for each sensor direction
+            Debug.DrawRay(
+                transform.position + Vector3.up * 0.1f, 
+                direction * sensorDistances[i], 
+                GetSensorColor(i), 
+                0.1f
+            );
+        }
+    }
+    
+    // Get a unique color for each sensor direction
+    private Color GetSensorColor(int sensorIndex)
+    {
+        switch (sensorIndex % 6)
+        {
+            case 0: return Color.red;
+            case 1: return Color.green;
+            case 2: return Color.blue;
+            case 3: return Color.yellow;
+            case 4: return Color.cyan;
+            case 5: return Color.magenta;
+            default: return Color.white;
+        }
     }
 
     void ApplyHuntingBehavior()
@@ -611,22 +537,38 @@ public class Creature : MonoBehaviour
         {
             // Calculate direction to prey
             Vector3 directionToPrey = targetPrey.transform.position - transform.position;
-            
-            // Calculate angle to prey
+            float distanceToPrey = directionToPrey.magnitude;
             float angleToTarget = Vector3.SignedAngle(transform.forward, directionToPrey, Vector3.up);
             
-            // Draw a line to current target
-            Debug.DrawLine(transform.position, targetPrey.transform.position, Color.red);
+            // When very close to prey, boost forward movement to increase collision chance
+            if (distanceToPrey < 3.0f)
+            {
+                // Override neural network briefly to ensure collision
+                FB = Mathf.Max(FB, 0.9f);
+                
+                // Ensure accurate turning toward prey when close
+                LR = Mathf.Clamp(angleToTarget / 45f, -1f, 1f);
+                
+                if (showDebugLogs) {
+                    // Debug.Log($"CLOSE TO PREY: Boosting speed to ensure collision! Distance={distanceToPrey:F2}");
+                }
+            }
             
-            // Convert angle to steering input - note that we DO NOT flip the sign anymore
-            // This assumes Movement.cs uses positive LR to turn right and negative to turn left
-            LR = Mathf.Clamp(angleToTarget / 30f, -1f, 1f);
+            // Debug hunting information - only if debug logging enabled
+            if (Time.frameCount % 60 == 0 && showDebugLogs)
+            {
+                // Debug.Log($"Hunting: Distance={distanceToPrey:F2}, Angle={angleToTarget:F1}, FB={FB:F2}, LR={LR:F2}");
+            }
             
-            // Increase speed when hunting - IMPORTANT: Change sign to positive for forward movement
-            FB = Mathf.Clamp01(1.0f - Mathf.Abs(angleToTarget) / 180f) * huntingSpeedMultiplier;
-            
-            // Minimum forward speed
-            FB = Mathf.Max(FB, 0.3f);
+            // Visualize hunting path
+            if (showAOESensors)
+            {
+                // Show line to target
+                Debug.DrawLine(transform.position, targetPrey.transform.position, Color.red, 0.1f);
+                
+                // Show predicted movement direction
+                Debug.DrawRay(transform.position, -transform.forward * 3f, Color.blue, 0.1f);
+            }
         }
     }
     
@@ -636,22 +578,23 @@ public class Creature : MonoBehaviour
         {
             // Calculate direction to mate
             Vector3 directionToMate = currentMate.transform.position - transform.position;
-            
-            // Calculate angle to mate
             float angleToMate = Vector3.SignedAngle(transform.forward, directionToMate, Vector3.up);
-            
-            // Distance to mate
             float distanceToMate = directionToMate.magnitude;
             
-            // Draw a line to current mate
-            Debug.DrawLine(transform.position, currentMate.transform.position, Color.magenta);
+            // Use proper turning to face mate
+            LR = Mathf.Clamp(angleToMate / 45f, -1.0f, 1.0f);
             
-            // If close enough to mate, start the mating process
-            if (distanceToMate < matingDistance)
+            // Move forward at moderate speed when not close enough
+            if (distanceToMate > matingDistance + 0.5f)
             {
-                // When close to mate, slow down
+                FB = 0.7f;
+            }
+            else if (distanceToMate <= matingDistance)
+            {
+                // When close enough, slow down to stay in position
                 FB = 0.1f;
-                LR = 0f;
+                // Fine-tune turning to face each other
+                LR = Mathf.Clamp(angleToMate / 30f, -0.5f, 0.5f);
                 
                 // Increment mating timer when close
                 matingTimer += Time.deltaTime;
@@ -662,64 +605,59 @@ public class Creature : MonoBehaviour
                     // Attempt to reproduce with the mate
                     AttemptReproduction(currentMate);
                     
-                    // Reset mating timer and love level
+                    // Reset mating timer
                     matingTimer = 0f;
-                    loveLevel = 0f;
-                    
-                    // Update mate's state too
-                    Creature mateCreature = currentMate.GetComponent<Creature>();
-                    if (mateCreature != null)
-                    {
-                        mateCreature.loveLevel = 0f;
-                        mateCreature.currentState = WolfState.Resting;
-                    }
-                    
-                    // Change to resting state
-                    currentState = WolfState.Resting;
                     currentMate = null;
                 }
-            }
-            else
-            {
-                // Move toward mate
-                LR = Mathf.Clamp(angleToMate / 30f, -1f, 1f);
-                
-                // Speed proportional to distance - slow down when getting closer
-                FB = Mathf.Clamp01(distanceToMate / 10f);
-                FB = Mathf.Max(FB, 0.3f);
             }
         }
     }
     
     void ApplyWanderingBehavior()
     {
-        // Add random movement when wandering to simulate searching
-        if (Random.value < idleMovementChance)
+        // FORCE EXTREME TURNING - 15% chance every frame to make a significant turn
+        if (Random.value < 0.15f)
         {
-            LR = Random.Range(-wanderStrength, wanderStrength);
+            // Force a very strong turn in a random direction
+            LR = Random.value < 0.5f ? -1.0f : 1.0f;  // Full left or right
+            
+            // Log forced turns
+            // Debug.Log($"Wolf FORCED TURN: LR = {LR}");
         }
         
-        // Keep moving forward at a moderate pace
-        FB = Mathf.Clamp(FB, 0.2f, 0.8f);
+        // Always ensure forward movement
+        FB = Mathf.Max(FB, 0.5f);
     }
 
-    // Called when the wolf collides with prey
+    // Called when the wolf collides with prey - improve collision detection
     void OnTriggerEnter(Collider col)
     {
+        if (showDebugLogs) {
+            // Debug.Log($"COLLISION: Wolf {gameObject.name} collided with: {col.gameObject.name}");
+        }
+        
         // Use the helper method
         if (IsPrey(col.gameObject))
         {
-            Debug.Log("Wolf collided with food: " + col.gameObject.name);
+            if (showDebugLogs) {
+                // Debug.Log($"EATING: Wolf detected prey: {col.gameObject.name}");
+            }
             
             // Try to get the Prey component
             Prey prey = col.gameObject.GetComponent<Prey>();
             if (prey != null)
             {
+                if (showDebugLogs) {
+                    // Debug.Log($"EATING: Found Prey component on {col.gameObject.name}");
+                }
                 // Let the prey handle being eaten
                 prey.GetEaten(this);
             }
             else
             {
+                if (showDebugLogs) {
+                    // Debug.Log($"EATING: No Prey component found on {col.gameObject.name}, using fallback eating behavior");
+                }
                 // Fallback for prey without the Prey component
                 // Eat the prey - INCREASES hunger now
                 hunger += hungerGained;
@@ -740,6 +678,40 @@ public class Creature : MonoBehaviour
         }
     }
 
+    // Add OnTriggerStay to handle continuous collision
+    void OnTriggerStay(Collider col)
+    {
+        // If we're very hungry, check for food even in continuous contact
+        if (hunger < maxHunger * 0.3f && IsPrey(col.gameObject))
+        {
+            if (showDebugLogs) {
+                // Debug.Log($"CONTINUOUS EATING: Wolf {gameObject.name} eating {col.gameObject.name} during continuous contact");
+            }
+            
+            // Try to get the Prey component
+            Prey prey = col.gameObject.GetComponent<Prey>();
+            if (prey != null)
+            {
+                prey.GetEaten(this);
+            }
+            else
+            {
+                // Fallback eating behavior
+                hunger += hungerGained * 0.5f * Time.deltaTime; // Slower eating in continuous contact
+                hunger = Mathf.Min(hunger, maxHunger);
+                
+                // Only destroy if we've eaten enough
+                if (Random.value < 0.01f)
+                {
+                    Destroy(col.gameObject);
+                    if (showDebugLogs) {
+                        // Debug.Log("FOOD CONSUMED in continuous contact");
+                    }
+                }
+            }
+        }
+    }
+
     public void ManageEnergy()
     {
         // Only manage hunger if not dead
@@ -748,10 +720,10 @@ public class Creature : MonoBehaviour
         // Decrease hunger over time - MUST use Time.deltaTime to be frame-rate independent
         hunger -= hungerDecreaseRate * Time.deltaTime;
         
-        // Debug log to verify hunger is decreasing
-        if (hunger % 10 < 0.1f)  // Log approximately every 10 units
+        // Debug log to verify hunger is decreasing - only if debug logging enabled
+        if (hunger % 10 < 0.1f && showDebugLogs)  // Log approximately every 10 units
         {
-            Debug.Log(gameObject.name + " - Hunger: " + hunger);
+            // Debug.Log(gameObject.name + " - Hunger: " + hunger);
         }
         
         // Clamp hunger between 0 and maxHunger
@@ -773,7 +745,12 @@ public class Creature : MonoBehaviour
                 GetComponent<Renderer>().material.color = Color.gray;
             }
             
-            Debug.Log(gameObject.name + " has died from hunger!");
+            if (showDebugLogs) {
+                // Debug.Log(gameObject.name + " has died from hunger!");
+            }
+            
+            // Destroy the GameObject after a delay
+            StartCoroutine(DestroyAfterDelay(1.4f));
         }
         
         // Update reproduction hunger
@@ -781,35 +758,32 @@ public class Creature : MonoBehaviour
         reproductionHunger = Mathf.Clamp(reproductionHunger, 0f, maxHunger);
     }
 
+    // New coroutine to destroy the GameObject after a delay
+    private IEnumerator DestroyAfterDelay(float delay)
+    {
+        yield return new WaitForSeconds(delay);
+        Destroy(gameObject);
+    }
+
     private void MutateCreature()
     {
-        if(mutateMutations)
-        {
-            mutationAmount += Random.Range(-1.0f, 1.0f)/100;
-            mutationChance += Random.Range(-1.0f, 1.0f)/100;
-        }
-
-        // Ensure mutation parameters stay positive
-        mutationAmount = Mathf.Max(mutationAmount, 0);
-        mutationChance = Mathf.Max(mutationChance, 0);
-
-        nn.MutateNetwork(mutationAmount, mutationChance);
+        nn.MutateNetwork(0.8f, 0.2f);
     }
 
     // New method for reproduction that requires two wolves
     private void AttemptReproduction(GameObject mate)
     {
-        // Check if both wolves have enough reproduction hunger
+        // Check if both wolves have maximum love
         Creature mateCreature = mate.GetComponent<Creature>();
         if (mateCreature == null) return;
         
-        if (reproductionHunger >= reproductionHungerThreshold && 
-            mateCreature.reproductionHunger >= mateCreature.reproductionHungerThreshold)
+        // Only check if both have full love (100)
+        if (loveLevel >= maxLoveLevel && mateCreature.loveLevel >= maxLoveLevel)
         {
             // Check if we have a prefab
             if (agentPrefab == null)
             {
-                Debug.LogError("Agent prefab is missing! Cannot reproduce.");
+                // Debug.LogError("Agent prefab is missing! Cannot reproduce.");
                 return;
             }
             
@@ -823,6 +797,8 @@ public class Creature : MonoBehaviour
                     0.75f, 
                     midPoint.z + Random.Range(-3, 4)), 
                     Quaternion.identity);
+                
+                // Debug.Log("Wolf reproduction successful! New wolf spawned.");
                 
                 // Mix neural networks from both parents with mutations
                 Creature childCreature = child.GetComponent<Creature>();
@@ -848,13 +824,17 @@ public class Creature : MonoBehaviour
                 }
             }
             
-            // Reset reproduction hunger for both parents
-            reproductionHunger = 0;
-            mateCreature.reproductionHunger = 0;
+            // Reset love level for both parents
+            loveLevel = 0;
+            mateCreature.loveLevel = 0;
             
             // Slightly reduce hunger from both parents due to reproduction effort
-            hunger -= 10f;
-            mateCreature.hunger -= 10f;
+            hunger = Mathf.Max(hunger - 10f, 0);
+            mateCreature.hunger = Mathf.Max(mateCreature.hunger - 10f, 0);
+            
+            // Update state for both parents
+            currentState = WolfState.Resting;
+            mateCreature.currentState = WolfState.Resting;
         }
     }
 
@@ -882,4 +862,146 @@ public class Creature : MonoBehaviour
         // Set the modified weights back to the neural network
         nn.weights = weights;
     }
+
+    void DetectPrey()
+    {
+        // Clear previous detections but keep tracked prey in memory for a while
+        detectedPreyList.Clear();
+        
+        // If we have a target but lost sight, count down memory timer
+        if (targetPrey != null)
+        {
+            preyTrackedTimer -= Time.deltaTime;
+            if (preyTrackedTimer <= 0f || targetPrey == null)
+            {
+                targetPrey = null;
+            }
+        }
+        
+        // Detect prey in AOE
+        Collider[] hitColliders = Physics.OverlapSphere(transform.position, viewDistance);
+        foreach (var hitCollider in hitColliders)
+        {
+            // Use helper method to check if it's prey
+            if (IsPrey(hitCollider.gameObject))
+            {
+                // Check line of sight
+                Vector3 directionToPrey = hitCollider.transform.position - transform.position;
+                
+                RaycastHit hit;
+                if (Physics.Raycast(transform.position + Vector3.up * 0.1f, directionToPrey.normalized, out hit, viewDistance))
+                {
+                    if (IsPrey(hit.collider.gameObject))
+                    {
+                        // Valid prey in sight
+                        detectedPreyList.Add(hitCollider.gameObject);
+                        
+                        if (showAOESensors)
+                        {
+                            // Visualize detected prey
+                            Debug.DrawLine(transform.position + Vector3.up * 0.1f, hitCollider.transform.position, Color.red, 0.1f);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Update target prey if we have valid detections
+        if (detectedPreyList.Count > 0)
+        {
+            // Find closest prey
+            GameObject closestPrey = null;
+            float closestDistance = float.MaxValue;
+            
+            foreach (GameObject prey in detectedPreyList)
+            {
+                float distance = Vector3.Distance(transform.position, prey.transform.position);
+                if (distance < closestDistance)
+                {
+                    closestDistance = distance;
+                    closestPrey = prey;
+                }
+            }
+            
+            if (closestPrey != null)
+            {
+                targetPrey = closestPrey;
+                preyTrackedTimer = preyMemoryDuration;
+                
+                if (Time.frameCount % 60 == 0)
+                {
+                    // Debug.Log($"Tracking prey: {targetPrey.name} at distance {closestDistance:F2}");
+                }
+            }
+        }
+    }
+    
+    void DetectMates()
+    {
+        // Only look for mates if ready
+        if (loveLevel < maxLoveLevel || isDead)
+        {
+            currentMate = null;
+            return;
+        }
+        
+        // Clear previous mate detections
+        detectedMatesList.Clear();
+        
+        // Log that we're looking for mates
+        if (Time.frameCount % 60 == 0)
+        {
+            // Debug.Log($"Wolf is looking for mates. Love: {loveLevel:F1}/{maxLoveLevel:F1}");
+        }
+        
+        // Detect potential mates in AOE
+        Collider[] hitColliders = Physics.OverlapSphere(transform.position, viewDistance);
+        foreach (var hitCollider in hitColliders)
+        {
+            if (IsPotentialMate(hitCollider.gameObject))
+            {
+                // Check line of sight
+                Vector3 directionToMate = hitCollider.transform.position - transform.position;
+                
+                RaycastHit hit;
+                if (Physics.Raycast(transform.position + Vector3.up * 0.1f, directionToMate.normalized, out hit, viewDistance))
+                {
+                    if (hit.collider.gameObject == hitCollider.gameObject)
+                    {
+                        // Valid mate in sight
+                        detectedMatesList.Add(hitCollider.gameObject);
+                        
+                        if (showAOESensors)
+                        {
+                            // Visualize detected mate
+                            Debug.DrawLine(transform.position + Vector3.up * 0.1f, hitCollider.transform.position, Color.green, 0.1f);
+                        }
+                        
+                        // Debug.Log($"Found potential mate: {hitCollider.gameObject.name}");
+                    }
+                }
+            }
+        }
+        
+        // Find closest mate
+        if (detectedMatesList.Count > 0)
+        {
+            float closestDistance = float.MaxValue;
+            GameObject closestMate = null;
+            
+            foreach (var mate in detectedMatesList)
+            {
+                float distance = Vector3.Distance(transform.position, mate.transform.position);
+                if (distance < closestDistance)
+                {
+                    closestDistance = distance;
+                    closestMate = mate;
+                }
+            }
+            
+            currentMate = closestMate;
+            // Debug.Log($"Selected mate: {currentMate.name} at distance {closestDistance:F2}");
+        }
+    }
 }
+

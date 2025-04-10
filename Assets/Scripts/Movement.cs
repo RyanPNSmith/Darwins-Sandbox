@@ -1,84 +1,109 @@
-﻿using System.Collections;
-using System.Collections.Generic;
-using UnityEngine;
-using System.Linq;
-//using NN;
-//using System;
-// using MathNet.Numerics;
-// using MathNet.Numerics.LinearAlgebra;
+﻿using UnityEngine;
 
 public class Movement : MonoBehaviour
 {
-    public CharacterController controller;
-    private bool hasController = false;
+    private CharacterController controller;
     private Vector3 playerVelocity;
     private float gravityValue = -9.81f;
-    public float speed = 10.0F;
-    public float rotateSpeed = 10.0F;
+    public float speed = 5.0f;
+    public float rotateSpeed = 300.0f;  // Extremely high rotation speed
     public float FB = 0;
     public float LR = 0;
+    
+    // Debug variables
+    public bool showDebug = true;
 
-    private ObjectTracker objectTracker;
     private Creature creature;
+    private Transform wolfTransform;
+    private Vector3 lastPosition;
+    private Quaternion lastRotation;
 
     void Awake()
     {
-        objectTracker = FindObjectOfType<ObjectTracker>();
         creature = GetComponent<Creature>();
+        wolfTransform = transform;
+        lastPosition = wolfTransform.position;
+        lastRotation = wolfTransform.rotation;
         
-        // Try to get the CharacterController component
+        // Get or add CharacterController
         controller = GetComponent<CharacterController>();
-        
-        // Check if we found it, if not, add one
         if (controller == null)
         {
-            Debug.LogWarning("No CharacterController found on " + gameObject.name + ", adding one automatically.");
             controller = gameObject.AddComponent<CharacterController>();
-            // Set some reasonable default values
             controller.height = 2.0f;
             controller.radius = 0.5f;
             controller.center = new Vector3(0, 1.0f, 0);
         }
     }
 
-    public void Move(float FB, float LR)
+    public void Move(float targetFB, float targetLR)
     {
-        // Ensure we have a controller before trying to use it
-        if (controller == null)
+        if (controller == null || creature.isDead) return;
+        
+        // Debug input values
+        if (showDebug && Time.frameCount % 60 == 0)
         {
-            controller = GetComponent<CharacterController>();
-            if (controller == null)
-            {
-                Debug.LogError("No CharacterController available on " + gameObject.name);
-                return;
-            }
+            Debug.Log($"Move inputs: FB={targetFB}, LR={targetLR}");
         }
         
-        //clamp the values of LR and FB
-        LR = Mathf.Clamp(LR, -1, 1);
-        FB = Mathf.Clamp(FB, 0.3f, 1); // Changed from 0 to 0.3f as minimum to ensure movement
-
-        //move the agent
-        if (!creature.isDead)
+        // ROTATION - Apply extreme rotation first
+        if (Mathf.Abs(targetLR) > 0.1f)  // Only rotate if LR is significant
         {
-            // Rotate around y - axis
-            transform.Rotate(0, LR * rotateSpeed, 0);
-
-            // Move forward / backward
-            Vector3 forward = transform.TransformDirection(Vector3.forward);
-            controller.SimpleMove(forward * speed * FB);
+            // Scale up the rotation amount significantly
+            float rotationAmount = targetLR * rotateSpeed;
+            
+            // Direct rotation using Quaternion
+            wolfTransform.Rotate(0, rotationAmount * Time.deltaTime, 0, Space.World);
+            
+            // Log significant rotation
+            if (showDebug && Mathf.Abs(rotationAmount) > 50f)
+            {
+                Debug.Log($"Wolf ROTATING by {rotationAmount} degrees/sec, direction={targetLR}");
+            }
         }
 
-        //Checks to see if the agent is grounded, if it is, don't apply gravity
-        if (controller.isGrounded && playerVelocity.y < 0)
+        // MOVEMENT - Apply forward movement in the direction the wolf is facing
+        if (targetFB > 0.1f)  // Only move if FB is significant
         {
-            playerVelocity.y = 0f;
+            // Calculate movement direction (-forward because we flipped the raycast direction)
+            Vector3 moveDirection = -wolfTransform.forward;
+            
+            // Apply movement using the controller
+            controller.SimpleMove(moveDirection * speed * targetFB);
+            
+            // Visualize movement with debug rays
+            if (showDebug && Time.frameCount % 30 == 0)
+            {
+                Debug.DrawRay(wolfTransform.position, moveDirection * 3, Color.green, 0.5f);
+            }
+        }
+
+        // Handle gravity
+        if (!controller.isGrounded)
+        {
+            playerVelocity.y += gravityValue * Time.deltaTime;
+            controller.Move(playerVelocity * Time.deltaTime);
         }
         else
         {
-            // Gravity
-            playerVelocity.y += gravityValue * Time.deltaTime;
-            controller.Move(playerVelocity * Time.deltaTime);
+            playerVelocity.y = 0;
+        }
+        
+        // Check if movement occurred
+        if (Time.frameCount % 120 == 0)
+        {
+            Vector3 positionDelta = wolfTransform.position - lastPosition;
+            Quaternion rotationDelta = Quaternion.Inverse(lastRotation) * wolfTransform.rotation;
+            float moveDist = positionDelta.magnitude;
+            float rotateAngle = Quaternion.Angle(Quaternion.identity, rotationDelta);
+            
+            if (showDebug)
+            {
+                Debug.Log($"Movement: {moveDist:F2} units, Rotation: {rotateAngle:F1} degrees in 2 seconds");
+            }
+            
+            lastPosition = wolfTransform.position;
+            lastRotation = wolfTransform.rotation;
         }
     }
 }

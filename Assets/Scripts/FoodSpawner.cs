@@ -116,8 +116,19 @@ public class FoodSpawner : MonoBehaviour
         float xPos = Random.Range(platformCenter.x - halfWidth, platformCenter.x + halfWidth);
         float zPos = Random.Range(platformCenter.z - halfHeight, platformCenter.z + halfHeight);
         
-        // Add a small vertical offset to avoid spawning inside platform
-        Vector3 spawnPos = new Vector3(xPos, platformCenter.y + 0.5f, zPos);
+        // Calculate spawn height based on platform bounds
+        float spawnHeight = platformCenter.y;
+        if (platformCollider != null)
+        {
+            spawnHeight = platformCollider.bounds.max.y;
+        }
+        else if (platformRenderer != null)
+        {
+            spawnHeight = platformRenderer.bounds.max.y;
+        }
+        
+        // Add a small vertical offset to ensure sheep spawn above the platform
+        Vector3 spawnPos = new Vector3(xPos, spawnHeight + 1.0f, zPos);
         
         // Check if position is valid (not too close to other food)
         if (IsClearPosition(spawnPos, 2.0f))
