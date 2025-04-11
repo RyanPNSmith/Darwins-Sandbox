@@ -43,11 +43,11 @@ public class Movement : MonoBehaviour
         // Debug input values
         if (showDebug && Time.frameCount % 60 == 0)
         {
-            Debug.Log($"Move inputs: FB={targetFB}, LR={targetLR}");
+            // Debug.Log($"Move inputs: FB={targetFB}, LR={targetLR}");
         }
         
-        // ROTATION - Apply extreme rotation first
-        if (Mathf.Abs(targetLR) > 0.1f)  // Only rotate if LR is significant
+        // ROTATION - Apply rotation with balanced left/right turning
+        if (Mathf.Abs(targetLR) > 0.05f)  // Lower threshold to catch small turning values
         {
             // Scale up the rotation amount significantly
             float rotationAmount = targetLR * rotateSpeed;
@@ -65,8 +65,8 @@ public class Movement : MonoBehaviour
         // MOVEMENT - Apply forward movement in the direction the wolf is facing
         if (targetFB > 0.1f)  // Only move if FB is significant
         {
-            // Calculate movement direction (-forward because we flipped the raycast direction)
-            Vector3 moveDirection = -wolfTransform.forward;
+            // Calculate movement direction (use forward direction directly)
+            Vector3 moveDirection = wolfTransform.forward;
             
             // Apply movement using the controller
             controller.SimpleMove(moveDirection * speed * targetFB);

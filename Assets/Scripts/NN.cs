@@ -242,7 +242,9 @@ public class NN : MonoBehaviour
                     if (preyDirection != 0)
                     {
                         // Apply a MUCH stronger turning bias in the direction of the prey
-                        nodeArray[i] += preyDirection * 0.9f;
+                        // The *0.9f was too strong and might be biasing one direction
+                        // Use a more balanced approach to ensure both left and right turns work
+                        nodeArray[i] += preyDirection * 0.7f;
                     }
                 }
             }

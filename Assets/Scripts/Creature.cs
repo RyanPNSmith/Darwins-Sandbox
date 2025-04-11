@@ -10,8 +10,7 @@ public class Creature : MonoBehaviour
     {
         Hunting,
         Wandering,
-        Mating,
-        Resting
+        Mating
     }
     
     // Current state and state machine properties
@@ -89,6 +88,9 @@ public class Creature : MonoBehaviour
     // Add prey detection input for neural network
     private float preyDirectionInput = 0f;
     private float preyDistanceInput = 1f;
+
+    // Apply consistent speeds throughout all behaviors
+    private readonly float STANDARD_SPEED = 0.5f; // Standard movement speed for all behaviors
 
     // Start is called before the first frame update
     void Awake()
@@ -197,6 +199,32 @@ public class Creature : MonoBehaviour
         // Update state machine
         UpdateStateMachine();
         
+        // Visual indicator for reproductive readiness
+        if (loveLevel >= maxLoveLevel && !isDead)
+        {
+            // Show hearts or other visual indicator above creature
+            if (showAOESensors)
+            {
+                // Draw a heart shape (simplified as an upward-pointing triangle)
+                Vector3 heartPos = transform.position + Vector3.up * 2.0f;
+                Debug.DrawLine(heartPos, heartPos + new Vector3(0.5f, 0.5f, 0), Color.red, 0.1f);
+                Debug.DrawLine(heartPos, heartPos + new Vector3(-0.5f, 0.5f, 0), Color.red, 0.1f);
+                Debug.DrawLine(heartPos + new Vector3(0.5f, 0.5f, 0), heartPos + new Vector3(0, -0.5f, 0), Color.red, 0.1f);
+                Debug.DrawLine(heartPos + new Vector3(-0.5f, 0.5f, 0), heartPos + new Vector3(0, -0.5f, 0), Color.red, 0.1f);
+            }
+            
+            // Change the color of the creature to indicate breeding readiness (optional)
+            if (GetComponent<Renderer>() != null && currentState != WolfState.Mating)
+            {
+                // Pulsate between normal color and a slight pink tint
+                float pulseValue = (Mathf.Sin(Time.time * 3f) + 1f) * 0.5f; // 0 to 1 pulsating value
+                GetComponent<Renderer>().material.color = Color.Lerp(
+                    new Color(1f, 1f, 1f), // Normal color
+                    new Color(1f, 0.7f, 0.7f), // Pinkish color
+                    pulseValue * 0.5f);  // Subtle effect
+            }
+        }
+        
         // Apply behavior based on current state
         switch (currentState)
         {
@@ -215,15 +243,6 @@ public class Creature : MonoBehaviour
                 if (currentMate != null)
                 {
                     ApplyMatingBehavior();
-                }
-                break;
-                
-            case WolfState.Resting:
-                // Resting - minimal forward movement with occasional turning
-                FB = 0.2f;
-                if (Random.value < 0.05f)
-                {
-                    LR = Random.Range(-1.0f, 1.0f);
                 }
                 break;
         }
@@ -261,6 +280,13 @@ public class Creature : MonoBehaviour
         // Define hunger threshold - when wolf is considered "hungry"
         float hungerThreshold = maxHunger * 0.5f;  // 50% of max hunger
         
+        // If we just reached max love level, maintain standard speed
+        if (loveLevel >= maxLoveLevel && loveLevel - loveIncreaseRate * Time.deltaTime < maxLoveLevel)
+        {
+            FB = STANDARD_SPEED;
+            LR = 0f;   // Neutralize turning
+        }
+        
         // State transitions
         switch(currentState)
         {
@@ -270,12 +296,17 @@ public class Creature : MonoBehaviour
                 {
                     currentState = WolfState.Hunting;
                     stateTimer = 0f;
+                    // Maintain consistent speed during transition
+                    FB = STANDARD_SPEED;
                 }
                 // If ready to mate (FULL love) and a mate is found AND not hungry, switch to mating
                 else if (loveLevel >= maxLoveLevel && currentMate != null && hunger >= hungerThreshold)
                 {
                     currentState = WolfState.Mating;
                     stateTimer = 0f;
+                    // Maintain consistent speed during transition
+                    FB = STANDARD_SPEED;
+                    LR = 0f;
                 }
                 break;
                 
@@ -285,12 +316,17 @@ public class Creature : MonoBehaviour
                 {
                     currentState = WolfState.Wandering;
                     stateTimer = 0f;
+                    // Maintain consistent speed during transition
+                    FB = STANDARD_SPEED;
                 }
                 // Only consider mating if we're not hungry
                 else if (loveLevel >= maxLoveLevel && currentMate != null && hunger >= hungerThreshold)
                 {
                     currentState = WolfState.Mating;
                     stateTimer = 0f;
+                    // Maintain consistent speed during transition
+                    FB = STANDARD_SPEED;
+                    LR = 0f;
                 }
                 break;
                 
@@ -300,21 +336,16 @@ public class Creature : MonoBehaviour
                 {
                     currentState = WolfState.Wandering;
                     stateTimer = 0f;
+                    // Maintain consistent speed during transition
+                    FB = STANDARD_SPEED;
                 }
                 // If we get hungry during mating, prioritize hunting
                 else if (hunger < hungerThreshold && targetPrey != null)
                 {
                     currentState = WolfState.Hunting;
                     stateTimer = 0f;
-                }
-                break;
-                
-            case WolfState.Resting:
-                // After resting for a while, go back to wandering
-                if (stateTimer > 3f)
-                {
-                    currentState = WolfState.Wandering;
-                    stateTimer = 0f;
+                    // Maintain consistent speed during transition
+                    FB = STANDARD_SPEED;
                 }
                 break;
         }
@@ -324,6 +355,8 @@ public class Creature : MonoBehaviour
         {
             currentState = WolfState.Hunting;
             stateTimer = 0f;
+            // Maintain consistent speed during transition
+            FB = STANDARD_SPEED;
         }
     }
     
@@ -531,6 +564,42 @@ public class Creature : MonoBehaviour
         }
     }
 
+    void ApplyWanderingBehavior()
+    {
+        // If love level is at maximum, actively look for mates
+        if (loveLevel >= maxLoveLevel && !isDead)
+        {
+            // Calculate circular search pattern - continually turn in wider circles
+            float searchTime = Time.time % 10f; // Cycle over 10 seconds
+            float turnStrength = Mathf.Sin(searchTime * 0.5f * Mathf.PI) * 0.6f; // -0.6 to 0.6
+            
+            // Increase turning to create a search pattern
+            LR = turnStrength;
+            
+            // Always use standard speed
+            FB = STANDARD_SPEED;
+            
+            // Every few seconds, make a more significant turn to change search area
+            if (Time.frameCount % 120 == 0) // About every 2 seconds at 60fps
+            {
+                LR = Random.value < 0.5f ? -0.8f : 0.8f;
+            }
+            
+            return; // Skip normal wandering behavior
+        }
+        
+        // Normal wandering for non-mating wolves
+        // FORCE EXTREME TURNING - 15% chance every frame to make a significant turn
+        if (Random.value < 0.15f)
+        {
+            // Force a very strong turn in a random direction
+            LR = Random.value < 0.5f ? -1.0f : 1.0f;  // Full left or right
+        }
+        
+        // Always use standard speed for wandering
+        FB = STANDARD_SPEED;
+    }
+    
     void ApplyHuntingBehavior()
     {
         if (targetPrey != null)
@@ -540,25 +609,19 @@ public class Creature : MonoBehaviour
             float distanceToPrey = directionToPrey.magnitude;
             float angleToTarget = Vector3.SignedAngle(transform.forward, directionToPrey, Vector3.up);
             
-            // When very close to prey, boost forward movement to increase collision chance
-            if (distanceToPrey < 3.0f)
+            // Debug the angle to see if there's an issue with turning
+            if (showDebugLogs && Time.frameCount % 60 == 0)
             {
-                // Override neural network briefly to ensure collision
-                FB = Mathf.Max(FB, 0.9f);
-                
-                // Ensure accurate turning toward prey when close
-                LR = Mathf.Clamp(angleToTarget / 45f, -1f, 1f);
-                
-                if (showDebugLogs) {
-                    // Debug.Log($"CLOSE TO PREY: Boosting speed to ensure collision! Distance={distanceToPrey:F2}");
-                }
+                Debug.Log($"Hunting - Angle to prey: {angleToTarget}, Distance: {distanceToPrey}");
             }
             
-            // Debug hunting information - only if debug logging enabled
-            if (Time.frameCount % 60 == 0 && showDebugLogs)
-            {
-                // Debug.Log($"Hunting: Distance={distanceToPrey:F2}, Angle={angleToTarget:F1}, FB={FB:F2}, LR={LR:F2}");
-            }
+            // Set balanced turning using the same approach as mating
+            // Positive angle means prey is to the right, so turn right
+            // Negative angle means prey is to the left, so turn left
+            LR = Mathf.Clamp(angleToTarget / 45f, -1f, 1f);
+            
+            // Always use standard speed regardless of angle or distance
+            FB = STANDARD_SPEED;
             
             // Visualize hunting path
             if (showAOESensors)
@@ -566,8 +629,14 @@ public class Creature : MonoBehaviour
                 // Show line to target
                 Debug.DrawLine(transform.position, targetPrey.transform.position, Color.red, 0.1f);
                 
-                // Show predicted movement direction
-                Debug.DrawRay(transform.position, -transform.forward * 3f, Color.blue, 0.1f);
+                // Draw forward direction to show where creature is actually facing
+                Debug.DrawRay(transform.position, transform.forward * 2f, 
+                             new Color(1f, 1f, 0f, 0.8f), 0.1f);
+                
+                // Show turning direction
+                Color turnColor = LR > 0 ? Color.yellow : Color.cyan;
+                Debug.DrawRay(transform.position + Vector3.up * 0.5f, 
+                              transform.right * LR * 2f, turnColor, 0.1f);
             }
         }
     }
@@ -581,23 +650,39 @@ public class Creature : MonoBehaviour
             float angleToMate = Vector3.SignedAngle(transform.forward, directionToMate, Vector3.up);
             float distanceToMate = directionToMate.magnitude;
             
-            // Use proper turning to face mate
-            LR = Mathf.Clamp(angleToMate / 45f, -1.0f, 1.0f);
-            
-            // Move forward at moderate speed when not close enough
-            if (distanceToMate > matingDistance + 0.5f)
+            // Debug the angle to see why they might be turning away
+            if (showDebugLogs && Time.frameCount % 60 == 0)
             {
-                FB = 0.7f;
+                Debug.Log($"Angle to mate: {angleToMate}, Distance: {distanceToMate}");
             }
-            else if (distanceToMate <= matingDistance)
+            
+            // FIXED TURNING: Positive angle means mate is to the right, so turn right
+            // Negative angle means mate is to the left, so turn left
+            // The sign of the angle directly corresponds to the turning direction
+            
+            // 1. Handle turning - direct and simpler approach
+            LR = Mathf.Clamp(angleToMate / 60f, -1f, 1f);
+            
+            // Use standard speed
+            FB = STANDARD_SPEED;
+            
+            // Only when very close to mate, in mating range
+            if (distanceToMate <= matingDistance)
             {
-                // When close enough, slow down to stay in position
-                FB = 0.1f;
-                // Fine-tune turning to face each other
-                LR = Mathf.Clamp(angleToMate / 30f, -0.5f, 0.5f);
-                
                 // Increment mating timer when close
                 matingTimer += Time.deltaTime;
+                
+                // Visual indication of mating progress
+                if (showAOESensors)
+                {
+                    // Draw a thicker connection line between the mates
+                    Debug.DrawLine(transform.position + Vector3.up * 0.3f, 
+                                  currentMate.transform.position + Vector3.up * 0.3f, 
+                                  Color.magenta, 0.1f);
+                    Debug.DrawLine(transform.position + Vector3.up * 0.2f, 
+                                  currentMate.transform.position + Vector3.up * 0.2f, 
+                                  new Color(1f, 0f, 1f, 0.5f), 0.1f);
+                }
                 
                 // Check if mating is complete
                 if (matingTimer >= matingTime)
@@ -610,23 +695,24 @@ public class Creature : MonoBehaviour
                     currentMate = null;
                 }
             }
-        }
-    }
-    
-    void ApplyWanderingBehavior()
-    {
-        // FORCE EXTREME TURNING - 15% chance every frame to make a significant turn
-        if (Random.value < 0.15f)
-        {
-            // Force a very strong turn in a random direction
-            LR = Random.value < 0.5f ? -1.0f : 1.0f;  // Full left or right
             
-            // Log forced turns
-            // Debug.Log($"Wolf FORCED TURN: LR = {LR}");
+            // Visualize target direction and turning
+            if (showAOESensors)
+            {
+                // Draw line showing the mating target direction
+                Debug.DrawRay(transform.position, directionToMate.normalized * 2f, 
+                             new Color(0f, 1f, 0f, 0.5f), 0.1f);
+                
+                // Draw forward direction to show where creature is actually facing
+                Debug.DrawRay(transform.position, transform.forward * 2f, 
+                             new Color(1f, 1f, 0f, 0.8f), 0.1f);
+                
+                // Draw turning direction
+                Color turnColor = LR > 0 ? Color.yellow : Color.cyan;
+                Debug.DrawRay(transform.position + Vector3.up * 0.5f, 
+                              transform.right * LR * 2f, turnColor, 0.1f);
+            }
         }
-        
-        // Always ensure forward movement
-        FB = Mathf.Max(FB, 0.5f);
     }
 
     // Called when the wolf collides with prey - improve collision detection
@@ -828,13 +914,9 @@ public class Creature : MonoBehaviour
             loveLevel = 0;
             mateCreature.loveLevel = 0;
             
-            // Slightly reduce hunger from both parents due to reproduction effort
-            hunger = Mathf.Max(hunger - 10f, 0);
-            mateCreature.hunger = Mathf.Max(mateCreature.hunger - 10f, 0);
-            
-            // Update state for both parents
-            currentState = WolfState.Resting;
-            mateCreature.currentState = WolfState.Resting;
+            // Return to wandering state immediately
+            currentState = WolfState.Wandering;
+            mateCreature.currentState = WolfState.Wandering;
         }
     }
 
@@ -938,8 +1020,8 @@ public class Creature : MonoBehaviour
     
     void DetectMates()
     {
-        // Only look for mates if ready
-        if (loveLevel < maxLoveLevel || isDead)
+        // Don't look for mates if dead
+        if (isDead)
         {
             currentMate = null;
             return;
@@ -948,14 +1030,13 @@ public class Creature : MonoBehaviour
         // Clear previous mate detections
         detectedMatesList.Clear();
         
-        // Log that we're looking for mates
-        if (Time.frameCount % 60 == 0)
-        {
-            // Debug.Log($"Wolf is looking for mates. Love: {loveLevel:F1}/{maxLoveLevel:F1}");
-        }
+        // Use increased search range when at max love level
+        float searchRadius = (loveLevel >= maxLoveLevel) ? 
+                           viewDistance * 1.2f : // Extended range when ready to mate
+                           viewDistance * 0.6f;  // Normal range otherwise
         
         // Detect potential mates in AOE
-        Collider[] hitColliders = Physics.OverlapSphere(transform.position, viewDistance);
+        Collider[] hitColliders = Physics.OverlapSphere(transform.position, searchRadius);
         foreach (var hitCollider in hitColliders)
         {
             if (IsPotentialMate(hitCollider.gameObject))
@@ -964,7 +1045,7 @@ public class Creature : MonoBehaviour
                 Vector3 directionToMate = hitCollider.transform.position - transform.position;
                 
                 RaycastHit hit;
-                if (Physics.Raycast(transform.position + Vector3.up * 0.1f, directionToMate.normalized, out hit, viewDistance))
+                if (Physics.Raycast(transform.position + Vector3.up * 0.1f, directionToMate.normalized, out hit, searchRadius))
                 {
                     if (hit.collider.gameObject == hitCollider.gameObject)
                     {
@@ -973,18 +1054,35 @@ public class Creature : MonoBehaviour
                         
                         if (showAOESensors)
                         {
-                            // Visualize detected mate
-                            Debug.DrawLine(transform.position + Vector3.up * 0.1f, hitCollider.transform.position, Color.green, 0.1f);
+                            // Visualize detected mate - brighter color when at max love
+                            Color lineColor = (loveLevel >= maxLoveLevel) ? 
+                                           new Color(0.5f, 1f, 0.5f) : // Brighter green when ready
+                                           Color.green;               // Normal green otherwise
+                            
+                            Debug.DrawLine(transform.position + Vector3.up * 0.1f, 
+                                         hitCollider.transform.position, 
+                                         lineColor, 0.1f);
+                            
+                            // Draw an additional heart shape when at max love
+                            if (loveLevel >= maxLoveLevel)
+                            {
+                                Vector3 midPoint = (transform.position + hitCollider.transform.position) / 2f;
+                                midPoint += Vector3.up * 1.5f;
+                                
+                                // Draw a heart
+                                Debug.DrawLine(midPoint, midPoint + new Vector3(0.3f, 0.3f, 0), Color.red, 0.1f);
+                                Debug.DrawLine(midPoint, midPoint + new Vector3(-0.3f, 0.3f, 0), Color.red, 0.1f);
+                                Debug.DrawLine(midPoint + new Vector3(0.3f, 0.3f, 0), midPoint + new Vector3(0, -0.3f, 0), Color.red, 0.1f);
+                                Debug.DrawLine(midPoint + new Vector3(-0.3f, 0.3f, 0), midPoint + new Vector3(0, -0.3f, 0), Color.red, 0.1f);
+                            }
                         }
-                        
-                        // Debug.Log($"Found potential mate: {hitCollider.gameObject.name}");
                     }
                 }
             }
         }
         
-        // Find closest mate
-        if (detectedMatesList.Count > 0)
+        // Find closest mate - ONLY if we don't already have one
+        if (detectedMatesList.Count > 0 && currentMate == null)
         {
             float closestDistance = float.MaxValue;
             GameObject closestMate = null;
@@ -999,8 +1097,41 @@ public class Creature : MonoBehaviour
                 }
             }
             
-            currentMate = closestMate;
-            // Debug.Log($"Selected mate: {currentMate.name} at distance {closestDistance:F2}");
+            // When at max love, select mates from a greater distance
+            float maxMateDistance = (loveLevel >= maxLoveLevel) ? 
+                                 viewDistance * 1.0f :  // Can see mates further when ready
+                                 viewDistance * 0.6f;   // Normal distance otherwise
+            
+            // Only set the mate if it's reasonably close
+            if (closestDistance < maxMateDistance)
+            {
+                currentMate = closestMate;
+                
+                // Always use STANDARD_SPEED when selecting a mate
+                FB = STANDARD_SPEED;
+                LR = 0f;
+                
+                // If at max love, immediately transition to mating state if not hungry
+                if (loveLevel >= maxLoveLevel && hunger >= maxHunger * 0.5f)
+                {
+                    currentState = WolfState.Mating;
+                }
+            }
+        }
+        
+        // If we still have a mate, check if they're still visible and valid
+        if (currentMate != null)
+        {
+            // Check if mate is still a valid target - use extended range when at max love
+            float maxFollowDistance = (loveLevel >= maxLoveLevel) ? 
+                                   viewDistance * 1.5f :  // Follow mates further when ready
+                                   viewDistance * 0.8f;   // Normal follow distance otherwise
+            
+            if (!IsPotentialMate(currentMate) || 
+                Vector3.Distance(transform.position, currentMate.transform.position) > maxFollowDistance)
+            {
+                currentMate = null;
+            }
         }
     }
 }
